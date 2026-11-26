@@ -46,8 +46,8 @@ bench --site test.localhost install-app open_practice
    Billing Case** using a chart encounter reference from
    `OC-MOCK-000001` through `OC-MOCK-000025`. The mock openChart adapter reads
    the version 1.0 clinical-facts billing subset and resolves the linked
-   subscriber against the preloaded synthetic administrative roster. Confirm
-   primary Medicare Part B coverage and add the confirmed service charges.
+   subscriber against the site's synthetic administrative roster. Confirm
+   test primary Medicare Part B coverage and add the confirmed service charges.
    Submit the billing case to approve it for release.
 3. Add approved billing cases to an **OpenPractice Claim Batch** and submit it.
    Release freezes the redacted billing data and the restricted PHI elements
@@ -73,7 +73,44 @@ service date, confirmed diagnosis count, and a revision digest. The release
 keeps patient-linked identifiers, dates and codes in the restricted snapshot.
 The frozen format preserves element order, separators and encoding so exporter
 changes affect future releases while the existing file stays reproducible.
-The mock and preloaded roster use synthetic data.
+### Synthetic subscribers for the portal test
+
+Ask the enrolled submitter to contact the [Novitas JH EDI Help Desk](https://www.novitas-solutions.com/webcenter/portal/MedicareJH/pagebyid?contentId=00004399)
+for the Colorado Part B (`04112`) Novitasphere 837P test. Request assigned
+synthetic subscribers or written approval to use an operator-supplied synthetic
+roster. Ask which subscriber demographics, dates of service and service mix to
+use, and whether the route supports both the 999 and 277CA for those cases.
+Keep the EDI case or approval reference. Use only synthetic data confirmed for
+the route. A valid MBI format alone cannot establish approval.
+
+Configure a fresh disposable Frappe site before approving any cases. Install
+the approved UTF-8 `subscriber-roster.csv` as
+`sites/<site>/private/openpractice-novitas-synthetic-roster.csv`, readable by
+the Frappe service user. The CSV has these columns.
+
+```text
+subscriber_ref,patient_first_name,patient_last_name,date_of_birth,administrative_sex,address,city,state,postal_code,member_id
+```
+
+Map the approved test subscribers to the mock links `BILLING-TEST-000001`
+through `BILLING-TEST-000025` for the cases you plan to approve. Use ISO dates,
+the authorized test demographics and the assigned or approved synthetic MBIs
+without hyphens. Use the associated `OC-MOCK-…` encounter references to obtain
+the synthetic dates and diagnoses. If the approved test instructions require
+different dates, diagnoses or services, align the fixture and billing lines
+with those instructions before releasing the batch.
+
+```sh
+bench --site test.localhost set-config open_practice_novitas_roster_approval YOUR-EDI-CASE-REFERENCE
+bench --site test.localhost set-config open_practice_novitas_roster_mode approved-synthetic
+```
+
+The default `rehearsal` mode uses the built-in `SYNTH…` member IDs for local
+tests. In `approved-synthetic` mode, case approval requires a matching row
+and batch release requires the roster digest recorded at approval. Keep the
+roster fixed through release. The frozen batch records the approval reference
+and digest. Reconstruction reads the frozen records even if the roster is
+later removed or replaced.
 
 To compare field mappings, export the same test cases from PC-ACE and compare the
 two files with `python -m src.claimlab.x837p diff pcace.dat openpractice.837`.

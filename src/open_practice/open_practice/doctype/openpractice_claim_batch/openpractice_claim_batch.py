@@ -8,7 +8,7 @@ from frappe.utils import now_datetime
 
 from open_practice.billing import prepare_test_batch, validate_test_batch
 from open_practice.frozen_837p import freeze_837p, render_frozen_837p
-from open_practice.site import require_test_site
+from open_practice.site import load_site_roster, require_test_site
 
 
 class OpenPracticeClaimBatch(Document):
@@ -49,11 +49,14 @@ class OpenPracticeClaimBatch(Document):
                 raise ValueError("Configure the first unused interchange control number in EDI Settings.")
             control_number = first_control + int(self.name.removeprefix("OPB-")) - 1
             now = now_datetime()
-            data = prepare_test_batch(settings.as_dict(), cases, control_number=control_number, now=now)
+            roster = load_site_roster()
+            data = prepare_test_batch(settings.as_dict(), cases, control_number=control_number, now=now, roster=roster)
             billing, phi = freeze_837p(data, control_number=control_number, now=now)
         except ValueError as error:
             frappe.throw(str(error))
 
+        if roster:
+            billing["synthetic_roster"] = {"approval_reference": roster.approval_reference, "sha256": roster.sha256}
         self.frozen_billing = json.dumps(billing, separators=(",", ":"))
         snapshot = frappe.get_doc(
             doctype="OpenPractice Claim PHI Snapshot",

@@ -1,5 +1,7 @@
 from copy import deepcopy
 from datetime import datetime
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest import TestCase
 from unittest.mock import patch
 
@@ -7,9 +9,15 @@ from claimlab.x837p import parse, validate
 from open_practice.billing import build_test_batch
 from open_practice.charting import read_billing_facts
 from open_practice.mock_openchart import read_mock_billing_facts, read_mock_response
+from open_practice.test_subscriber_roster import load_approved_synthetic_roster
 
 
 NOW = datetime(2026, 11, 26, 10, 30)
+SYNTHETIC_ROSTER_CSV = (
+    "subscriber_ref,patient_first_name,patient_last_name,date_of_birth,administrative_sex,"
+    "address,city,state,postal_code,member_id\n"
+    "BILLING-TEST-000001,EXAMPLE,ROSTERTEST,1950-01-01,F,20 EXAMPLE AVE,DENVER,CO,80201,1EG4TE5MK73\n"
+)
 SETTINGS = {
     "submitter_id": "DEMOCO01",
     "submitter_name": "EXAMPLE BILLING",
@@ -119,6 +127,32 @@ class BillingTest(TestCase):
         self.assertIn("*MI*SYNTH000001~", text)
         self.assertNotIn("OVERRIDE001", text)
         self.assertNotIn("Z000", text)
+
+    def test_approved_roster_requires_valid_rows_and_never_falls_back(self):
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "subscriber-roster.csv"
+            with self.assertRaisesRegex(ValueError, "readable UTF-8 CSV"):
+                load_approved_synthetic_roster(path, "LOCAL-E2E")
+            for csv_text, error in [
+                ("name,identifier\n", "headers"),
+                (SYNTHETIC_ROSTER_CSV.replace("1EG4TE5MK73", "SYNTH000001"), "invalid MBI"),
+                (SYNTHETIC_ROSTER_CSV + SYNTHETIC_ROSTER_CSV.splitlines()[1], "duplicate reference"),
+            ]:
+                with self.subTest(error=error):
+                    path.write_text(csv_text, encoding="utf-8")
+                    with self.assertRaisesRegex(ValueError, error):
+                        load_approved_synthetic_roster(path, "LOCAL-E2E")
+            path.write_text(SYNTHETIC_ROSTER_CSV, encoding="utf-8")
+            roster = load_approved_synthetic_roster(path, "LOCAL-E2E")
+
+        for case, supplied_roster, error in [
+            (sample_case(), roster, "approved against the current synthetic test roster"),
+            ({**sample_case(), "synthetic_roster_sha256": roster.sha256}, None, "approved against the current synthetic test roster"),
+            ({**sample_case(2), "synthetic_roster_sha256": roster.sha256}, roster, "no matching billing subscriber"),
+        ]:
+            with self.subTest(error=error):
+                with self.assertRaisesRegex(ValueError, error):
+                    build_test_batch(SETTINGS, [case], control_number=1, now=NOW, roster=supplied_roster)
 
     def test_export_holds_when_chart_facts_are_withdrawn(self):
         case = sample_case()

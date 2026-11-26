@@ -64,13 +64,13 @@ def _charge(line, service_date, diagnosis_count):
     }
 
 
-def case_to_claim(case, *, today):
+def case_to_claim(case, *, today, roster=None):
     if not case.get("coverage_verified"):
         raise ValueError("Verify primary Medicare Part B coverage for the date of service.")
     facts = read_mock_billing_facts(case.get("chart_encounter_ref"))
     if (case.get("subscriber_ref"), case.get("chart_revision")) != (facts.subscriber_ref, facts.revision):
         raise ValueError("The charting handoff changed. Review the latest facts before release.")
-    subscriber = get_test_subscriber(facts.subscriber_ref)
+    subscriber = roster.get_subscriber(facts.subscriber_ref) if roster else get_test_subscriber(facts.subscriber_ref)
     service_date = facts.service_date
     birth_date = _date(subscriber, "date_of_birth")
     if not birth_date <= service_date <= today:
@@ -95,20 +95,23 @@ def case_to_claim(case, *, today):
     }
 
 
-def build_test_batch(settings, cases, *, control_number, now):
-    data = prepare_test_batch(settings, cases, control_number=control_number, now=now)
+def build_test_batch(settings, cases, *, control_number, now, roster=None):
+    data = prepare_test_batch(settings, cases, control_number=control_number, now=now, roster=roster)
     payload = "".join(x837p.build_segments(data, ctrl=control_number, test=True, now=now)).encode("ascii")
     validate_test_batch(payload)
     return payload
 
 
-def prepare_test_batch(settings, cases, *, control_number, now):
+def prepare_test_batch(settings, cases, *, control_number, now, roster=None):
     """Export original office-service claims for one enrolled Colorado billing provider."""
     if type(control_number) is not int or not 1 <= control_number <= 999_999_999:
         raise ValueError("Interchange control number must be between 1 and 999999999.")
     if not cases:
         raise ValueError("Select at least one approved billing case.")
-    claims = [case_to_claim(case, today=now.date()) for case in cases]
+    roster_digest = roster.sha256 if roster else None
+    if any((case.get("synthetic_roster_sha256") or None) != roster_digest for case in cases):
+        raise ValueError("The selected cases must be approved against the current synthetic test roster.")
+    claims = [case_to_claim(case, today=now.date(), roster=roster) for case in cases]
     if len({row["claim"]["id"] for row in claims}) != len(claims):
         raise ValueError("Each billing case may appear once in a claim batch.")
 

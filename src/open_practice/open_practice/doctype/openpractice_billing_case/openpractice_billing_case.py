@@ -4,7 +4,7 @@ from frappe.utils import getdate
 
 from open_practice.billing import case_to_claim
 from open_practice.mock_openchart import read_mock_billing_facts
-from open_practice.site import require_test_site
+from open_practice.site import load_site_roster, require_test_site
 
 
 class OpenPracticeBillingCase(Document):
@@ -26,6 +26,8 @@ class OpenPracticeBillingCase(Document):
 
     def before_submit(self):
         try:
-            case_to_claim(self.as_dict(), today=getdate())
+            roster = load_site_roster()
+            case_to_claim(self.as_dict(), today=getdate(), roster=roster)
         except ValueError as error:
             frappe.throw(str(error))
+        self.synthetic_roster_sha256 = roster.sha256 if roster else None

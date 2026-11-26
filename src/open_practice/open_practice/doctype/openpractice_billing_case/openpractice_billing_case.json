@@ -9,6 +9,7 @@
     "service_date",
     "diagnosis_count",
     "chart_revision",
+    "synthetic_roster_sha256",
     "coverage_verified",
     "charges",
     "claim_batch"
@@ -46,6 +47,14 @@
     {
       "fieldname": "chart_revision",
       "label": "Billing facts revision",
+      "fieldtype": "Data",
+      "hidden": 1,
+      "read_only": 1,
+      "no_copy": 1
+    },
+    {
+      "fieldname": "synthetic_roster_sha256",
+      "label": "Approved synthetic roster digest",
       "fieldtype": "Data",
       "hidden": 1,
       "read_only": 1,

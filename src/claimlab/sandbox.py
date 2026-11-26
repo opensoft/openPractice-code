@@ -4,6 +4,7 @@ import argparse
 import json
 import re
 from datetime import datetime
+from decimal import Decimal
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files
@@ -13,8 +14,14 @@ from . import x837p
 
 MAX_BYTES = 1024 * 1024
 TEST_MEMBER_ID = "SYNTH00001"
-TEST_SUBSCRIBER = {"first": "TAYLOR", "last": "DEMO", "dob": "19600101"}
-EXAMPLES = {"accepted.837", "claim-rejected.837", "file-rejected.837"}
+TEST_SUBSCRIBERS = {
+    f"SYNTH{day:05d}": {"first": "TAYLOR", "last": "DEMO", "dob": f"196001{day:02d}"}
+    for day in range(1, 26)
+}
+EXAMPLES = {
+    "accepted.837", "accepted-25.837", "claim-rejected.837", "file-rejected.837",
+    "missing-clm02.837", "invalid-total-charge.837",
+}
 ASSETS = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/styles.css": ("styles.css", "text/css; charset=utf-8"),
@@ -27,53 +34,80 @@ def issue(code, message):
 
 
 def simulate(payload):
-    """Return simulated 999 and 277CA outcomes without including subscriber data."""
+    """Return simulated TA1, 999, and 277CA outcomes without including subscriber data."""
+    interchange_issues = []
     file_issues = []
     claims = []
     try:
         edi = payload.decode("ascii")
     except UnicodeDecodeError:
-        edi = ""
         file_issues.append(issue("ASCII_REQUIRED", "Upload the original ASCII 837P file."))
+    else:
+        segments = x837p.parse(edi)
+        interchange_issues = validate_interchange(edi, segments)
+        if not interchange_issues:
+            file_issues = validate_file(edi, segments)
+            if not file_issues:
+                claims = simulate_claims(segments)
 
-    if not file_issues:
-        file_issues = validate_file(edi)
-    if not file_issues:
-        claims = simulate_claims(x837p.parse(edi))
-
+    file_status = "rejected" if file_issues else "accepted"
+    if interchange_issues:
+        file_status = "not_generated"
     claim_status = "not_generated"
     if claims:
         statuses = {claim["status"] for claim in claims}
         claim_status = statuses.pop() if len(statuses) == 1 else "mixed"
     return {
         "simulated": True,
-        "accepted": not file_issues and claim_status == "accepted",
-        "file_ack": {
-            "type": "999",
-            "status": "rejected" if file_issues else "accepted",
-            "issues": file_issues,
+        "accepted": claim_status == "accepted",
+        "interchange_ack": {
+            "type": "TA1",
+            "status": "rejected" if interchange_issues else "not_generated",
+            "issues": interchange_issues,
         },
+        "file_ack": {"type": "999", "status": file_status, "issues": file_issues},
         "claim_ack": {"type": "277CA", "status": claim_status, "claims": claims},
     }
 
 
-def validate_file(edi):
+def validate_interchange(edi, segments):
     if not edi.startswith("ISA*"):
         return [issue("ISA_REQUIRED", "Start the file with an ISA segment.")]
-    if edi[82:83] != "^" or edi[104:106] != ":~":
+    if edi[82:83] != "^" or edi[104:106] != ":~" or len(segments[0]) != 17:
         return [issue("ISA_LAYOUT", "Check the fixed-width ISA and use *, :, ~, and ^ as delimiters.")]
-    if not re.fullmatch(r"[0-9]{9}", edi[90:99]) or edi[90:99] == "000000000":
+    interchange_control = edi[90:99]
+    if not re.fullmatch(r"[0-9]{9}", interchange_control) or interchange_control == "000000000":
         return [issue("ISA_CONTROL", "Use a positive nine-digit interchange control number in ISA13.")]
+    trailer = segments[-1]
+    if trailer[0] != "IEA" or len(trailer) != 3:
+        return [issue("IEA_REQUIRED", "End the interchange with an IEA group count and control number.")]
+    if trailer[2] != interchange_control:
+        return [{**issue("INTERCHANGE_CONTROL_MISMATCH", "ISA13 must match IEA02."), "ta105": "001"}]
+    group_count = sum(segment[0] == "GS" for segment in segments)
+    if not group_count or not re.fullmatch(rf"0*{group_count}", trailer[1]):
+        return [{**issue("INTERCHANGE_GROUP_COUNT", "IEA01 must match the number of GS groups."), "ta105": "021"}]
+    return []
+
+
+def validate_file(edi, segments):
     if edi[102:103] != "T":
         return [issue("TEST_FLAG_REQUIRED", "Set ISA15 to T before submitting a synthetic 837P.")]
     if re.search(r"[\x00-\x09\x0b-\x0c\x0e-\x1f\x7f]", edi):
         return [issue("UNSUPPORTED_CHARACTER", "Use printable ASCII and optional line breaks.")]
 
-    for index, segment in enumerate(x837p.parse(edi), 1):
-        if not re.fullmatch(r"[A-Z][A-Z0-9]{1,2}", segment[0]):
+    for index, segment in enumerate(segments, 1):
+        kind = segment[0]
+        if not re.fullmatch(r"[A-Z][A-Z0-9]{1,2}", kind):
             return [issue("SEGMENT_ID", f"Check the segment identifier at position {index}.")]
-        if segment[0] == "SE" and len(segment) > 1 and not re.fullmatch(r"[0-9]{1,10}", segment[1]):
+        if kind == "SE" and len(segment) > 1 and not re.fullmatch(r"[0-9]{1,10}", segment[1]):
             return [issue("SE_COUNT", f"Enter a numeric segment count in SE01 at position {index}.")]
+        if kind in {"CLM", "SV1"}:
+            element = f"{kind}02"
+            amount = segment[2] if len(segment) > 2 else ""
+            if not amount.strip():
+                return [issue(f"{element}_REQUIRED", f"Enter the required charge in {element} at segment {index}.")]
+            if len(amount) > 18 or not re.fullmatch(r"-?[0-9]+(?:\.[0-9]+)?", amount):
+                return [issue(f"{element}_INVALID", f"Enter a numeric charge in {element} at segment {index}.")]
 
     return [issue("837P_RULE", message) for message in x837p.validate(edi, novitas=True)]
 
@@ -97,26 +131,45 @@ def simulate_claims(segments):
             dob = segment[2] if len(segment) > 2 else ""
         elif kind == "CLM":
             issues = []
+            subscriber = TEST_SUBSCRIBERS.get(subscriber_id)
             if not in_subscriber_loop:
                 issues.append(issue("SUBSCRIBER_REQUIRED", "Place the claim under a self-subscriber HL."))
-            elif subscriber_id != TEST_MEMBER_ID:
-                issues.append(issue("TEST_MEMBER_UNKNOWN", f"Use {TEST_MEMBER_ID} in Loop 2010BA NM109."))
-            elif {"first": first, "last": last, "dob": dob} != TEST_SUBSCRIBER:
-                issues.append(issue("TEST_DEMOGRAPHICS_MISMATCH", "Use TAYLOR DEMO and DOB 19600101 in Loop 2010BA."))
-            claim = {"number": len(claims) + 1, "issues": issues, "has_service": False}
+            elif subscriber is None:
+                issues.append(issue("TEST_MEMBER_UNKNOWN", "Use SYNTH00001 through SYNTH00025 in Loop 2010BA NM109."))
+            elif {"first": first, "last": last, "dob": dob} != subscriber:
+                issues.append(issue("TEST_DEMOGRAPHICS_MISMATCH", "Use the name and DOB in the ClaimLab batch example for this member."))
+            claim = {"number": len(claims) + 1, "issues": issues, "total": Decimal(segment[2]), "line_total": None}
             claims.append(claim)
         elif kind == "SV1" and claim is not None:
-            claim["has_service"] = True
+            claim["line_total"] = (claim["line_total"] or Decimal(0)) + Decimal(segment[2])
 
     for claim in claims:
-        if not claim.pop("has_service"):
+        total = claim.pop("total")
+        line_total = claim.pop("line_total")
+        if line_total is None:
             claim["issues"].append(issue("SERVICE_REQUIRED", "Include at least one SV1 service line for this claim."))
+        elif total < 0 or total != line_total:
+            claim["issues"].append(issue("CLAIM_TOTAL_OUT_OF_BALANCE", "CLM02 must be nonnegative and equal the sum of the SV102 service charges."))
         claim["status"] = "rejected" if claim["issues"] else "accepted"
     return claims
 
 
 def example(name):
-    member_id = "SYNTH99999" if name == "claim-rejected.837" else TEST_MEMBER_ID
+    members = TEST_SUBSCRIBERS if name == "accepted-25.837" else [TEST_MEMBER_ID]
+    claims = []
+    for ordinal, member_id in enumerate(members, 1):
+        claims.append({
+            "patient": {
+                **TEST_SUBSCRIBERS[member_id],
+                "member_id": "SYNTH99999" if name == "claim-rejected.837" else member_id,
+                "address": "2 Example Way", "city": "Denver", "state": "CO", "zip": "80202", "sex": "U",
+            },
+            "payer": {"name": "Demo Medicare Part B", "id": "04112"},
+            "claim": {
+                "id": f"CLAB-DEMO-{ordinal:03d}", "pos": "60", "diagnoses": ["Z23"],
+                "lines": [{"cpt": "G0008", "charge": 30, "date": "20261120"}],
+            },
+        })
     data = {
         "submitter": {"id": "CLAIMLABTEST", "name": "ClaimLab Demo", "contact": "Test Contact", "phone": "3035550100"},
         "receiver": {"id": "04112", "name": "Demo Medicare Part B", "qualifier": "27"},
@@ -125,21 +178,15 @@ def example(name):
             "address": "1 Example Way", "city": "Denver", "state": "CO", "zip": "802020000",
         },
         "request_interchange_ack": True,
-        "claims": [{
-            "patient": {
-                **TEST_SUBSCRIBER, "member_id": member_id, "address": "2 Example Way",
-                "city": "Denver", "state": "CO", "zip": "80202", "sex": "U",
-            },
-            "payer": {"name": "Demo Medicare Part B", "id": "04112"},
-            "claim": {
-                "id": "CLAB-DEMO-001", "pos": "60", "diagnoses": ["Z23"],
-                "lines": [{"cpt": "G0008", "charge": 30, "date": "20261120"}],
-            },
-        }],
+        "claims": claims,
     }
     edi = x837p.build(data, ctrl=1, now=datetime(2026, 11, 26, 12))
     if name == "file-rejected.837":
         edi = edi.replace("IEA*1*000000001", "IEA*1*000000002")
+    elif name == "missing-clm02.837":
+        edi = edi.replace("CLM*CLAB-DEMO-001*30*", "CLM*CLAB-DEMO-001**")
+    elif name == "invalid-total-charge.837":
+        edi = edi.replace("CLM*CLAB-DEMO-001*30*", "CLM*CLAB-DEMO-001*31*")
     return edi.encode("ascii")
 
 

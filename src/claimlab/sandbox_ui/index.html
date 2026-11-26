@@ -21,7 +21,7 @@
   <main class="frame">
     <div class="intro">
       <h1>Test an 837P file</h1>
-      <p>Check a synthetic claim file and see simulated 999 and 277CA results.</p>
+      <p>Check a synthetic claim file and see simulated TA1, 999, and 277CA results.</p>
     </div>
 
     <div class="workspace" id="upload">
@@ -41,12 +41,24 @@
             <a href="/api/v1/examples/accepted.837" download aria-label="Download accepted claim sample">Download</a>
           </div>
           <div class="example-row">
-            <button type="button" data-example="claim-rejected.837">Rejected claim</button>
-            <a href="/api/v1/examples/claim-rejected.837" download aria-label="Download rejected claim sample">Download</a>
+            <button type="button" data-example="accepted-25.837">25 accepted claims</button>
+            <a href="/api/v1/examples/accepted-25.837" download aria-label="Download 25 accepted claims sample">Download</a>
           </div>
           <div class="example-row">
-            <button type="button" data-example="file-rejected.837">Rejected file</button>
-            <a href="/api/v1/examples/file-rejected.837" download aria-label="Download rejected file sample">Download</a>
+            <button type="button" data-example="claim-rejected.837">Unknown subscriber</button>
+            <a href="/api/v1/examples/claim-rejected.837" download aria-label="Download unknown subscriber sample">Download</a>
+          </div>
+          <div class="example-row">
+            <button type="button" data-example="file-rejected.837">Interchange mismatch</button>
+            <a href="/api/v1/examples/file-rejected.837" download aria-label="Download interchange mismatch sample">Download</a>
+          </div>
+          <div class="example-row">
+            <button type="button" data-example="missing-clm02.837">Missing CLM02</button>
+            <a href="/api/v1/examples/missing-clm02.837" download aria-label="Download missing CLM02 sample">Download</a>
+          </div>
+          <div class="example-row">
+            <button type="button" data-example="invalid-total-charge.837">Invalid total charge</button>
+            <a href="/api/v1/examples/invalid-total-charge.837" download aria-label="Download invalid total charge sample">Download</a>
           </div>
         </div>
       </section>
@@ -55,6 +67,10 @@
         <h2 id="results-title">Results</h2>
         <p id="result-summary" role="status">Choose a file or run a sample to get started.</p>
         <div class="result-cards">
+          <article class="result-card">
+            <div><h3>TA1</h3><p>Interchange envelope</p></div>
+            <span class="status" id="interchange-status">Awaiting file</span>
+          </article>
           <article class="result-card">
             <div><h3>999</h3><p>File structure</p></div>
             <span class="status" id="file-status">Awaiting file</span>

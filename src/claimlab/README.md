@@ -11,7 +11,7 @@ From the repository root with Python 3.10 or newer:
 python -m src.claimlab.sandbox
 ```
 
-Open http://127.0.0.1:8765/. Choose an 837P file or try one of the three
+Open http://127.0.0.1:8765/. Choose an 837P file or try one of the six
 downloadable examples. Pass `--port` to change the port.
 
 Use synthetic data and set `ISA15=T`. ClaimLab processes the upload in
@@ -33,23 +33,39 @@ Other status codes describe request errors such as an empty upload
 | --- | --- |
 | `simulated` | Always `true`. |
 | `accepted` | `true` when the file and every claim pass. |
-| `file_ack.status` | `accepted` or `rejected`. |
+| `interchange_ack.status` | `rejected` for a TA1 failure or `not_generated`. |
+| `file_ack.status` | `accepted`, `rejected`, or `not_generated` after a TA1 failure. |
 | `claim_ack.status` | `accepted`, `rejected`, `mixed`, or `not_generated`. |
 
-`file_ack.issues` and `claim_ack.claims` describe why a file or claim
-failed. Check with `accepted.837`, `file-rejected.837`, and
-`claim-rejected.837` under `/api/v1/examples/`.
+`interchange_ack.issues`, `file_ack.issues`, and `claim_ack.claims`
+describe the outcome at each stage. Download these files from
+`/api/v1/examples/`:
+
+| File | Expected simulation |
+| --- | --- |
+| `accepted.837` | Accepted 999 and one accepted claim. |
+| `accepted-25.837` | Accepted 999 and 25 accepted claims with distinct synthetic subscribers and claim IDs. |
+| `file-rejected.837` | TA1 rejection, code `001`. ISA13 and IEA02 differ. No 999 or 277CA is generated. |
+| `missing-clm02.837` | 999 rejection for a missing claim total. No 277CA is generated. |
+| `invalid-total-charge.837` | Accepted 999 and rejected 277CA. The claim total does not match its service-line charges. |
+| `claim-rejected.837` | Accepted 999 and rejected 277CA for an unknown synthetic subscriber. |
 
 The prototype supports one ISA/IEA, GS/GE, and ST/SE for an 837P
-005010X222A1 batch using the * : ~ ^ delimiters and the existing
-primary Medicare Part B validation rules. The synthetic subscriber is
-`SYNTH00001`, TAYLOR DEMO, born 1960-01-01. Claim checks use that
-local record and require a service line.
+005010X222A1 batch using the * : ~ ^ delimiters and selected primary
+Medicare Part B validation rules. The 25 synthetic subscribers are
+TAYLOR DEMO with member IDs `SYNTH00001` through `SYNTH00025` and
+birth dates January 1 through January 25, 1960 respectively. The batch
+example includes all 25 records so developers can reuse their details.
 
-The responses are JSON simulations of a file-level 999 and claim-level
-277CA. Issue codes describe ClaimLab checks. Novitas portal acceptance
-requires a separate test with Novitas and the submitter's supported
-test data.
+The API returns JSON simulations of a TA1 interchange acknowledgment,
+999 file acknowledgment, and 277CA claim acknowledgment. Issue codes
+describe ClaimLab checks. A separate test with Novitas and its supported
+test data verifies payer acceptance.
+
+Reference examples:
+[CMS professional claim edits](https://www.cms.gov/Regulations-and-Guidance/Guidance/Transmittals/Downloads/R1440OTN.pdf),
+[Wisconsin ForwardHealth 999 guide](https://www.dhs.wisconsin.gov/publications/p0/p00268.pdf),
+and [Novitas 277CA training](https://www.novitas-solutions.com/webcenter/content/conn/UCM_Repository/uuid/dDocName:00004758).
 
 ## CLI
 

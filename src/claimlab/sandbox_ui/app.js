@@ -3,6 +3,7 @@
 const form = document.querySelector("#upload-form");
 const input = document.querySelector("#edi-file");
 const summary = document.querySelector("#result-summary");
+const interchangeStatus = document.querySelector("#interchange-status");
 const fileStatus = document.querySelector("#file-status");
 const claimStatus = document.querySelector("#claim-status");
 const issues = document.querySelector("#issues");
@@ -37,6 +38,7 @@ function showIssues(messages) {
 async function runCheck(loadFile) {
   for (const action of actions) action.disabled = true;
   summary.textContent = "Checking file…";
+  setStatus(interchangeStatus, "waiting");
   setStatus(fileStatus, "waiting");
   setStatus(claimStatus, "waiting");
   showIssues([]);
@@ -50,10 +52,18 @@ async function runCheck(loadFile) {
     });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error.message);
+    setStatus(interchangeStatus, result.interchange_ack.status);
     setStatus(fileStatus, result.file_ack.status);
     setStatus(claimStatus, result.claim_ack.status);
-    summary.textContent = result.accepted ? "File and claims passed the simulation." : "The simulation found issues.";
-    const messages = result.file_ack.issues.map(issue => issue.message);
+    const count = result.claim_ack.claims.length;
+    summary.textContent = result.accepted
+      ? count + (count === 1 ? " claim" : " claims") + " passed the simulation."
+      : "The simulation found issues.";
+    const messages = result.interchange_ack.issues.map(issue => {
+      const label = issue.ta105 ? "TA1 " + issue.ta105 : "TA1";
+      return label + " · " + issue.message;
+    });
+    for (const issue of result.file_ack.issues) messages.push(issue.message);
     for (const claim of result.claim_ack.claims) {
       for (const issue of claim.issues) {
         messages.push("Claim " + claim.number + " · " + issue.message);

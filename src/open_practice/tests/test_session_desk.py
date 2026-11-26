@@ -9,6 +9,23 @@ from urllib.request import Request, urlopen
 from open_practice.session_desk import SessionDesk, make_server
 
 
+ADDRESS = {
+    "street_address": "10 Example Street",
+    "address_line_2": "Suite 2",
+    "city": "Denver",
+    "region": "CO",
+    "postal_code": "80202",
+}
+SITE = {"legal_name": "Practice Example Company", "npi": "1234567893", **ADDRESS}
+INSURANCE = {
+    "payer_name": "Example Health",
+    "payer_id": "10000",
+    "plan_name": "Example Plan",
+    "member_id": "SYNTHETIC-001",
+    "group_number": "EXAMPLE-GRP",
+}
+
+
 class SessionDeskTest(TestCase):
     def setUp(self):
         directory = self.enterContext(TemporaryDirectory())
@@ -44,21 +61,116 @@ class SessionDeskTest(TestCase):
     def test_named_alf_can_be_booked_and_its_contract_status_updated(self):
         legacy = self.book("alf")
         name = "Example Assisted Living"
-        facility = self.request("/api/facilities", {"name": name})
+        facility = self.request("/api/facilities", {"name": name, "facility_type": "alf", **SITE})
         self.assertEqual(facility["contract_status"], "unknown")
-        self.assertEqual(self.request("/api/facilities", {"name": name}), facility)
+        self.assertEqual(self.request("/api/facilities", {"name": name, "facility_type": "alf", **SITE}), facility)
 
         first = self.book(facility["reference"], "in-person")
         second = self.book(facility["reference"], "telemedicine")
-        updated = self.request("/api/facilities", {**facility, "contract_status": "contracted"})
+        updated = self.request("/api/facilities", {
+            "reference": facility["reference"], "name": name, "contract_status": "contracted",
+        })
         self.assertEqual(self.request("/api/facilities")[-1], updated)
         self.assertEqual(updated["reference"], facility["reference"])
+        self.assertEqual({key: updated[key] for key in SITE}, SITE)
 
         saved = {row["id"]: row for row in SessionDesk(self.database).appointments()}
         self.assertEqual(saved[legacy["id"]], legacy)
         for booked in (first, second):
             self.assertEqual(saved[booked["id"]], {**booked, "facility_name": name, "contract_status": "contracted"})
         self.assertEqual(self.request("/api/facilities", {**updated, "contract_status": "no_contract"})["contract_status"], "no_contract")
+
+    def test_facility_types_are_saved_in_the_directory_and_available_when_booking(self):
+        for facility_type in ("office", "alf", "snf", "hospital", "other"):
+            with self.subTest(facility_type=facility_type):
+                kind = "clinic" if facility_type == "office" else "alf"
+                details = {"name": f"Example {facility_type}", "facility_type": facility_type, **SITE}
+                saved = self.request("/api/facilities", details)
+                values = {
+                    "patient": "demo-01", "location_kind": kind, "location": saved["reference"],
+                    "mode": "telemedicine", "day": "2026-11-26", "time": "09:00",
+                }
+                booked = self.request("/api/appointments", values)
+                self.assertEqual(booked["location_kind"], kind)
+                self.assertEqual(booked["facility_type"], facility_type)
+                self.assertEqual(booked["location_address"], ADDRESS)
+                self.assertEqual(self.request("/api/appointments", values), booked)
+                self.assertIn(saved, self.request("/api/facilities"))
+                self.assertEqual({key: saved[key] for key in details}, details)
+                self.assertEqual(saved["contract_status"], "unknown" if kind == "alf" else None)
+
+    def test_facility_creation_requires_a_type_and_uses_the_directory(self):
+        details = {"name": "Example Hospital", **SITE}
+        for invalid in (details, {**details, "facility_type": "home"}, {**details, "facility_type": "hospital", "npi": "bad"}):
+            with self.subTest(invalid=invalid), self.assertRaises(HTTPError) as rejected:
+                self.request("/api/facilities", invalid)
+            with rejected.exception as response:
+                self.assertEqual(response.code, 400)
+        with self.assertRaises(HTTPError) as rejected:
+            self.request("/api/appointments", {
+                "patient": "demo-01", "location_kind": "alf", "location": "alf-" + "e" * 32,
+                "mode": "in-person", "day": "2026-11-26", "time": "09:00",
+                "new_location": {**details, "facility_type": "hospital"},
+            })
+        with rejected.exception as response:
+            self.assertEqual(response.code, 400)
+        self.assertEqual(self.request("/api/appointments"), [])
+        self.assertEqual([row["reference"] for row in self.request("/api/facilities")], ["clinic"])
+
+    def test_archived_facility_preserves_appointment_history_and_can_be_restored(self):
+        details = {"name": "Example Hospital", "facility_type": "hospital", **SITE}
+        facility = self.request("/api/facilities", details)
+        reference = facility["reference"]
+        first = self.book(reference)
+        archive = f"/api/facilities/{reference}/archive"
+        self.assertEqual(self.request(archive, {})["archived"], 1)
+        self.assertEqual(self.request(archive, {})["archived"], 1)
+        self.assertEqual(self.request("/api/appointments"), [first])
+        self.assertEqual(self.request("/api/facilities")[-1]["archived"], 1)
+
+        for path, values in (
+            ("/api/facilities", details),
+            ("/api/appointments", {
+                "patient": "demo-02", "location_kind": "alf", "location": reference,
+                "mode": "in-person", "day": "2026-11-26", "time": "10:00",
+            }),
+        ):
+            with self.subTest(path=path), self.assertRaises(HTTPError) as rejected:
+                self.request(path, values)
+            with rejected.exception as response:
+                self.assertEqual(response.code, 400)
+                self.assertIn("archived", json.load(response)["error"])
+
+        restored = self.request(f"/api/facilities/{reference}/restore", {})
+        self.assertEqual(restored, facility)
+        second = self.book(reference, "telemedicine")
+        self.assertEqual([row["id"] for row in self.request("/api/appointments")], [first["id"], second["id"]])
+
+    def test_booking_saves_home_for_the_patient_and_prevents_cross_patient_use(self):
+        patient = "patient-" + "c" * 32
+        reference = "home-" + "d" * 32
+        values = {
+            "patient": patient, "location_kind": "home", "location": reference,
+            "mode": "in-person", "day": "2026-11-26", "time": "09:00",
+            "new_patient": {"first_name": "Practice", "last_name": "Example"},
+            "new_location": {"living_arrangement": "with_caregiver", **ADDRESS},
+        }
+        booked = self.request("/api/appointments", values)
+        self.assertEqual(self.request("/api/appointments", values), booked)
+        self.assertEqual((booked["location_kind"], booked["living_arrangement"]), ("home", "with_caregiver"))
+        self.assertEqual(booked["location_address"], ADDRESS)
+        self.assertEqual(self.request(f"/api/patients/{patient}/homes"), [{"reference": reference, **ADDRESS}])
+        self.assertEqual(self.request("/api/patients/demo-01/homes"), [])
+        self.assertNotIn(reference, {row["reference"] for row in self.request("/api/facilities")})
+
+        saved = {key: value for key, value in values.items() if not key.startswith("new_")}
+        with self.assertRaises(HTTPError) as rejected:
+            self.request("/api/appointments", {**saved, "patient": "demo-01"})
+        with rejected.exception as response:
+            self.assertEqual(response.code, 400)
+        again = self.request("/api/appointments", {**saved, "time": "10:00", "mode": "telemedicine"})
+        self.assertEqual(again["location"], reference)
+        self.assertEqual(SessionDesk(self.database).appointments(), [booked, again])
 
     def test_booking_registers_patient_once_and_reuses_the_record(self):
         patient = "patient-" + "a" * 32
@@ -81,6 +193,89 @@ class SessionDeskTest(TestCase):
         self.assertEqual(repeat["patient_details"], details)
         self.assertEqual(len(SessionDesk(self.database).appointments()), 2)
 
+    def test_group_booking_keeps_one_session_and_editable_insurance_per_patient(self):
+        patient = "patient-" + "a" * 32
+        group = {
+            "reference": "group-" + "b" * 32, "name": "Vaccination Group A",
+            "patients": [
+                {"patient": "demo-01"},
+                {
+                    "patient": patient,
+                    "new_patient": {"first_name": "Practice", "last_name": "Example", "chart_reference": "GROUP-01"},
+                    "insurance": INSURANCE,
+                },
+            ],
+        }
+        slot = {"location": "clinic", "location_kind": "clinic", "mode": "in-person", "day": "2026-11-26", "time": "09:00"}
+        values = {"group": group, **slot}
+        booked = self.request("/api/appointments", values)
+        self.assertEqual(booked["group_name"], "Vaccination Group A")
+        self.assertEqual(booked["member_count"], 2)
+        self.assertIsNone(booked["patient"])
+        self.assertIsNone(booked["patient_details"])
+        self.assertNotIn(INSURANCE["member_id"], json.dumps(self.request("/api/appointments")))
+        self.assertNotIn(INSURANCE["member_id"], json.dumps(self.request("/api/patients")))
+        self.assertEqual(self.request("/api/appointments", values), booked)
+
+        path = f"/api/appointments/{booked['id']}/patients"
+        roster = self.request(path)
+        self.assertEqual([entry["reference"] for entry in roster], ["demo-01", patient])
+        self.assertIsNone(roster[0]["insurance"])
+        self.assertEqual(roster[1]["chart_reference"], "GROUP-01")
+        self.assertEqual(roster[1]["insurance"], INSURANCE)
+
+        first_patient_insurance = {**INSURANCE, "member_id": "SYNTHETIC-002"}
+        self.request("/api/patients/demo-01/insurance", first_patient_insurance)
+        self.request("/api/appointments", values)
+        self.assertEqual(self.request(path)[0]["insurance"], first_patient_insurance)
+        self.assertEqual(self.request(path)[1]["insurance"], INSURANCE)
+        individual = self.request("/api/appointments", {**slot, "patient": "demo-01"})
+        self.assertNotEqual(individual["id"], booked["id"])
+        self.assertEqual(self.request(f"/api/appointments/{individual['id']}/patients")[0]["insurance"], first_patient_insurance)
+        moved = self.request(f"/api/appointments/{booked['id']}/advance", {"stage": "scheduled"})
+        self.assertEqual((moved["stage"], moved["member_count"]), ("available", 2))
+        self.assertEqual(SessionDesk(self.database).appointments(), [moved, individual])
+
+    def test_group_booking_rejects_invalid_roster_and_coverage_atomically(self):
+        values = {
+            "location": "clinic", "mode": "in-person", "day": "2026-11-26", "time": "09:00",
+        }
+        patient = {
+            "patient": "patient-" + "a" * 32,
+            "new_patient": {"first_name": "Practice", "last_name": "Example"},
+        }
+        before = self.request("/api/patients")
+        for roster in (
+            [], [patient, patient],
+            [patient, {**patient, "patient": "patient-" + "c" * 32, "insurance": {"member_id": "INCOMPLETE"}}],
+        ):
+            with self.subTest(roster=roster), self.assertRaises(HTTPError) as rejected:
+                self.request("/api/appointments", {**values, "group": {"reference": "group-" + "c" * 32, "patients": roster}})
+            with rejected.exception as response:
+                self.assertEqual(response.code, 400)
+        self.assertEqual(self.request("/api/patients"), before)
+        self.assertEqual(self.request("/api/appointments"), [])
+
+    def test_group_home_requires_a_host_patient_on_its_roster(self):
+        values = {
+            "group": {
+                "reference": "group-" + "d" * 32,
+                "patients": [{"patient": "demo-01"}, {"patient": "demo-02"}],
+            },
+            "location": "home-" + "d" * 32, "location_kind": "home",
+            "mode": "in-person", "day": "2026-11-26", "time": "09:00",
+            "new_location": {"living_arrangement": "with_caregiver", **ADDRESS},
+        }
+        with self.assertRaises(HTTPError) as rejected:
+            self.request("/api/appointments", {**values, "home_patient": "demo-03"})
+        with rejected.exception as response:
+            self.assertEqual(response.code, 400)
+        booked = self.request("/api/appointments", {**values, "home_patient": "demo-02"})
+        self.assertEqual(booked["group_name"], "Group visit")
+        self.assertEqual(booked["location_address"], ADDRESS)
+        self.assertEqual(self.request("/api/patients/demo-01/homes"), [])
+        self.assertEqual(self.request("/api/patients/demo-02/homes"), [{"reference": booked["location"], **ADDRESS}])
+
     def test_rejected_bookings_leave_patient_directory_unchanged(self):
         values = {
             "patient": "patient-" + "a" * 32, "location": "clinic", "mode": "in-person",
@@ -92,6 +287,16 @@ class SessionDeskTest(TestCase):
             {**values, "new_patient": {"first_name": "Practice", "last_name": "Example", "date_of_birth": "2026-02-30"}},
             {**values, "new_patient": {"first_name": "Practice", "last_name": "Example"}, "time": "25:00"},
             {**values, "new_patient": {"first_name": "Practice", "last_name": "Example"}, "location": "unregistered"},
+            {
+                **values, "new_patient": {"first_name": "Practice", "last_name": "Example"},
+                "location": "clinic-" + "e" * 32, "location_kind": "clinic",
+                "new_location": {"name": "Bad NPI Clinic", **SITE, "npi": "invalid"},
+            },
+            {
+                **values, "new_patient": {"first_name": "Practice", "last_name": "Example"},
+                "location": "home-" + "f" * 32, "location_kind": "home",
+                "new_location": {"living_arrangement": "", **ADDRESS},
+            },
         ):
             with self.subTest(wrong=wrong), self.assertRaises(HTTPError) as rejected:
                 self.request("/api/appointments", wrong)
@@ -100,6 +305,7 @@ class SessionDeskTest(TestCase):
                 rejected.exception.read()
         self.assertEqual(self.request("/api/patients"), before)
         self.assertEqual(self.request("/api/appointments"), [])
+        self.assertEqual([row["reference"] for row in self.request("/api/facilities")], ["clinic"])
 
     def test_session_end_allows_admin_handoff_and_chart_confirmation_enables_billing(self):
         booked = self.book("alf", "telemedicine")

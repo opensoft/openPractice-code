@@ -1,6 +1,17 @@
 const get = (id) => document.getElementById(id);
 const modes = { "in-person": "In person", telemedicine: "Telemedicine" };
 const contractLabels = { unknown: "Unknown", no_contract: "No contract", contracted: "Contracted" };
+const livingLabels = { alone: "Lives alone", with_caregiver: "Lives with a caregiver" };
+const addressFields = ["street_address", "address_line_2", "city", "region", "postal_code"];
+const siteDetails = ["legal_name", "npi", ...addressFields];
+const patientFields = ["first_name", "last_name", "date_of_birth", "chart_reference"];
+const insuranceFields = {
+  payer_name: "Payer", member_id: "Member ID", plan_name: "Plan",
+  payer_id: "Payer ID", group_number: "Group number",
+};
+const addLocationLabels = {
+  clinic: "Add new office / clinic", alf: "Add new facility", home: "Add new home",
+};
 const stages = ["scheduled", "available", "ready", "started", "ended", "wrapped"];
 const mountain = { timeZone: "America/Denver" };
 const dayFormat = new Intl.DateTimeFormat("en-US", {
@@ -19,15 +30,51 @@ const dialog = get("booking-dialog");
 const form = get("booking-form");
 const viewDay = get("view-day");
 const patientSelect = form.elements.patient;
+const appointmentType = form.elements.appointment_type;
+const groupPatientSelect = get("group-patient-select");
+const groupRosterDraft = get("group-roster-draft");
+const groupHomeSelect = form.elements.home_patient;
+const addGroupPatient = get("add-group-patient");
 const newPatientFields = get("new-patient-fields");
+const locationType = form.elements.location_kind;
+const locationSelect = form.elements.location;
+const newLocationFields = get("new-location-fields");
 const facilityDialog = get("facility-dialog");
 const facilityForm = get("facility-form");
-const facilitySelect = facilityForm.elements.reference;
+const facilityType = facilityForm.elements.facility_type;
+const facilityTypeLabels = Object.fromEntries([...facilityType.options].map((option) => [option.value, option.text]));
+const facilitySearch = get("facility-search");
+const facilityTypeFilter = get("facility-filter-type");
+const facilityStatusFilter = get("facility-filter-status");
+const facilityList = get("facility-list");
+const insuranceDialog = get("insurance-dialog");
+const insuranceForm = get("insurance-form");
 let appointments = [];
 let patients = [];
 let facilities = [];
 let selectedId = null;
 let newPatientReference;
+let groupReference;
+let groupMembers = [];
+let editInsuranceFor;
+let newLocationReference;
+let locationRequest = 0;
+let lastBookingLocation = "";
+let facilityHandoff = null;
+let selectedFacilityReference = null;
+let facilityBusy = false;
+
+facilityTypeFilter.append(...[...facilityType.options].filter((option) => option.value).map((option) => option.cloneNode(true)));
+
+for (const group of ["site", "address", "contract"]) {
+  get(`facility-${group}-fields`).append(get(`${group}-fields-template`).content.cloneNode(true));
+}
+get("booking-address-fields").append(get("address-fields-template").content.cloneNode(true));
+for (const target of ["booking-insurance-fields", "insurance-edit-fields"]) {
+  get(target).append(get("insurance-fields-template").content.cloneNode(true));
+}
+insuranceForm.elements.payer_name.required = true;
+insuranceForm.elements.member_id.required = true;
 
 function stageLabel(stage, mode) {
   return {
@@ -42,11 +89,12 @@ function stageLabel(stage, mode) {
 
 function actionFor(appointment) {
   const telemedicine = appointment.mode === "telemedicine";
+  const inHome = appointment.location_kind === "home";
   return {
     scheduled: telemedicine
       ? ["Mark session available", "The telemedicine session is available for setup."]
-      : ["Register arrival", "Record when the patient arrives at the location."],
-    available: ["Mark patient ready", telemedicine ? "Confirm the patient is set up for telemedicine." : "Confirm the patient is in the exam room."],
+      : ["Register arrival", inHome ? "Record when staff reach the patient's home." : "Record when the patient arrives at the location."],
+    available: ["Mark patient ready", telemedicine ? "Confirm the patient is set up for telemedicine." : "Confirm the patient is ready for the visit."],
     ready: ["Start session", "Record when the clinician begins the session."],
     started: ["End session", "Record when the patient can leave the room or the telemedicine call ends."],
     ended: ["Wrap up session", "The patient can leave and admin can take over. Wrap up once the clinician has finished in the charting system."],
@@ -58,11 +106,23 @@ function patientLabel(patient) {
   return `${patient.first_name} ${patient.last_name}`;
 }
 
+function appointmentLabel(appointment) {
+  const name = appointment.group_name;
+  if (!appointment.group_reference) return patientLabel(appointment.patient_details);
+  return name === "Group visit" ? name : `Group visit · ${name}`;
+}
+
 function patientIdentifiers(patient) {
   return [
     patient.date_of_birth && `Born ${birthDateFormat.format(new Date(`${patient.date_of_birth}T00:00:00Z`))}`,
     patient.chart_reference && `Chart ${patient.chart_reference}`,
   ].filter(Boolean).join(" · ");
+}
+
+function locationAddress(location) {
+  const city = [location.city, [location.region, location.postal_code].filter(Boolean).join(" ")]
+    .filter(Boolean).join(", ");
+  return [location.street_address, location.address_line_2, city].filter(Boolean).join(", ");
 }
 
 function escapeHTML(value) {
@@ -97,7 +157,7 @@ function render() {
   get("appointments").innerHTML = visible.length ? visible.map((row) => `
     <button type="button" class="appointment" data-appointment="${row.id}" aria-pressed="${row.id === selectedId}">
       <time datetime="${row.time}">${displaySlot(row.time)}</time>
-      <span><strong>${escapeHTML(patientLabel(row.patient_details))}</strong>
+      <span><strong>${escapeHTML(appointmentLabel(row))}</strong>
         <small>${escapeHTML(row.facility_name)} · ${modes[row.mode]}</small>
         <small class="row-stage">${stageLabel(row.stage, row.mode)}</small>
       </span>
@@ -107,6 +167,7 @@ function render() {
 
 function renderSession(appointment) {
   const session = get("session");
+  const previousRoster = get("patient-roster");
   if (!appointment) {
     session.innerHTML = `<h2>Session details</h2><p class="session-description">Book an appointment to follow its progress here.</p>`;
     return;
@@ -114,12 +175,23 @@ function renderSession(appointment) {
   const [action, hint] = actionFor(appointment);
   const needsConfirmation = appointment.stage === "ended";
   const current = stageLabel(appointment.stage, appointment.mode);
-  const identifiers = patientIdentifiers(appointment.patient_details);
+  const identifiers = appointment.patient_details ? patientIdentifiers(appointment.patient_details) : "";
+  const address = locationAddress(appointment.location_address);
+  const facilityTypeLabel = appointment.facility_type && facilityTypeLabels[appointment.facility_type];
+  const rosterLabel = appointment.group_reference ? `Patients in this visit (${appointment.member_count})` : "Patient information";
+  const keepRosterOpen = previousRoster?.open && Number(previousRoster.dataset.appointment) === appointment.id;
   session.innerHTML = `
-    <h2>${escapeHTML(patientLabel(appointment.patient_details))}</h2>
+    <h2>${escapeHTML(appointmentLabel(appointment))}</h2>
     <p class="session-description">${displaySlot(appointment.time)} · ${escapeHTML(appointment.facility_name)} · ${modes[appointment.mode]}</p>
-    ${appointment.contract_status ? `<p class="session-description">ALF pharmacy contract · ${contractLabels[appointment.contract_status]}</p>` : ""}
+    ${facilityTypeLabel ? `<p class="session-description">${escapeHTML(facilityTypeLabel)}</p>` : ""}
+    ${address ? `<p class="session-description">${escapeHTML(address)}</p>` : ""}
+    ${appointment.contract_status ? `<p class="session-description">Facility pharmacy contract · ${contractLabels[appointment.contract_status]}</p>` : ""}
+    ${appointment.living_arrangement ? `<p class="session-description">${livingLabels[appointment.living_arrangement]}</p>` : ""}
     ${identifiers ? `<p class="patient-details">${escapeHTML(identifiers)}</p>` : ""}
+    <details id="patient-roster" class="patient-roster" data-appointment="${appointment.id}" ${keepRosterOpen ? "open" : ""}>
+      <summary>${rosterLabel}</summary>
+      <div id="patient-roster-content" aria-live="polite"></div>
+    </details>
     <div class="session-action">
       <h3>${current}</h3>
       <p>${hint}</p>
@@ -136,6 +208,12 @@ function renderSession(appointment) {
       }).join("")}
     </ol>`;
 
+  const roster = get("patient-roster");
+  const rosterContent = get("patient-roster-content");
+  roster.addEventListener("toggle", () => {
+    if (roster.open && !rosterContent.dataset.state) loadPatients(appointment.id, rosterContent);
+  });
+  if (keepRosterOpen) loadPatients(appointment.id, rosterContent);
   if (needsConfirmation) {
     get("chart-complete").addEventListener("change", (event) => {
       get("advance-session").disabled = !event.target.checked;
@@ -143,6 +221,65 @@ function renderSession(appointment) {
   }
   if (action) get("advance-session").addEventListener("click", () => advance(appointment));
 }
+
+async function loadPatients(appointmentId, content) {
+  content.dataset.state = "loading";
+  content.textContent = "Loading patient information…";
+  try {
+    const roster = await api(`/api/appointments/${appointmentId}/patients`);
+    content.innerHTML = roster.map((patient) => {
+      const identifiers = patientIdentifiers(patient);
+      const info = patient.insurance
+        ? `<dl class="insurance-values">${Object.entries(insuranceFields)
+          .filter(([key]) => patient.insurance[key])
+          .map(([key, label]) => `<dt>${label}</dt><dd>${escapeHTML(patient.insurance[key])}</dd>`).join("")}</dl>`
+        : '<p class="patient-details">Primary insurance has not been entered.</p>';
+      return `<details><summary>${escapeHTML(patientLabel(patient))}</summary>
+        ${identifiers ? `<p class="patient-details">${escapeHTML(identifiers)}</p>` : ""}
+        ${info}<button type="button" data-insurance="${escapeHTML(patient.reference)}">${patient.insurance ? "Edit insurance" : "Add insurance"}</button></details>`;
+    }).join("");
+    content.querySelectorAll("[data-insurance]").forEach((button, index) => {
+      const patient = roster[index];
+      button.addEventListener("click", () => {
+        editInsuranceFor = { patient, appointmentId, content };
+        get("insurance-patient").textContent = patientLabel(patient);
+        for (const key of Object.keys(insuranceFields)) {
+          insuranceForm.elements[key].value = patient.insurance?.[key] ?? "";
+        }
+        showError(get("insurance-error"), "");
+        insuranceDialog.showModal();
+      });
+    });
+    content.dataset.state = "loaded";
+  } catch (error) {
+    content.textContent = error.message;
+    delete content.dataset.state;
+  }
+}
+
+get("cancel-insurance").addEventListener("click", () => insuranceDialog.close());
+insuranceForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const { patient, appointmentId, content } = editInsuranceFor;
+  const submit = insuranceForm.querySelector('[type="submit"]');
+  submit.disabled = true;
+  showError(get("insurance-error"), "");
+  try {
+    await api(`/api/patients/${encodeURIComponent(patient.reference)}/insurance`, Object.fromEntries(new FormData(insuranceForm)));
+    insuranceDialog.close();
+    await loadPatients(appointmentId, content);
+    const button = [...content.querySelectorAll("[data-insurance]")].find((item) => item.dataset.insurance === patient.reference);
+    if (button) {
+      button.closest("details").open = true;
+      button.focus();
+    }
+    get("notice").textContent = "Primary insurance saved.";
+  } catch (error) {
+    showError(get("insurance-error"), error.message);
+  } finally {
+    submit.disabled = false;
+  }
+});
 
 async function refresh() {
   [appointments, patients, facilities] = await Promise.all([
@@ -172,29 +309,201 @@ async function advance(appointment) {
 }
 
 function updatePatientFields() {
-  const isNewPatient = patientSelect.value === "new";
-  newPatientFields.hidden = !isNewPatient;
-  newPatientFields.disabled = !isNewPatient;
+  const group = appointmentType.value === "group";
+  const selection = group ? groupPatientSelect.value : patientSelect.value;
+  toggleFields(get("individual-patient-fields"), !group);
+  toggleFields(get("group-patient-fields"), group);
+  toggleFields(newPatientFields, selection === "new");
+  toggleFields(addGroupPatient, group && Boolean(selection));
+}
+
+function patientOptions(exclude = []) {
+  return [
+    new Option("Choose a patient", ""),
+    new Option("Add new patient", "new"),
+    ...patients.filter((patient) => !exclude.includes(patient.reference)).map((patient) => {
+      const identifiers = patientIdentifiers(patient);
+      return new Option(identifiers ? `${patientLabel(patient)} · ${identifiers}` : patientLabel(patient), patient.reference);
+    }),
+  ];
+}
+
+function syncGroupHome() {
+  const previous = groupHomeSelect.value;
+  toggleFields(get("group-home-fields"), appointmentType.value === "group" && locationType.value === "home");
+  groupHomeSelect.replaceChildren(
+    new Option("Choose the host patient", ""),
+    ...groupMembers.map(({ name, entry }) => new Option(name, entry.patient)),
+  );
+  if (groupMembers.some(({ entry }) => entry.patient === previous)) groupHomeSelect.value = previous;
+  else if (groupMembers.length === 1) groupHomeSelect.value = groupMembers[0].entry.patient;
+  return previous !== groupHomeSelect.value;
+}
+
+function updateGroupRoster() {
+  groupRosterDraft.hidden = !groupMembers.length;
+  groupRosterDraft.innerHTML = groupMembers.map(({ name, entry }) => `
+    <li><span>${escapeHTML(name)}</span>
+      <button type="button" data-remove-patient="${escapeHTML(entry.patient)}" aria-label="Remove ${escapeHTML(name)}">Remove</button></li>`).join("");
+  groupPatientSelect.replaceChildren(...patientOptions(groupMembers.map(({ entry }) => entry.patient)));
+  updatePatientFields();
+  if (syncGroupHome() && locationType.value === "home") {
+    clearLocationDraft();
+    updateLocations();
+  }
+}
+
+function newPatientEntry(reference, fields) {
+  const patient = Object.fromEntries(patientFields.map((key) => [key, fields[key]]));
+  const insurance = Object.fromEntries(Object.keys(insuranceFields).map((key) => [key, fields[key]]));
+  if (Object.values(insurance).some((value) => value?.trim())
+      && (!insurance.payer_name?.trim() || !insurance.member_id?.trim())) {
+    get("booking-insurance").open = true;
+    throw new Error("Enter the insurance payer and member ID.");
+  }
+  return { patient: reference, new_patient: patient, insurance };
+}
+
+function clearPatientDraft() {
+  for (const key of [...patientFields, ...Object.keys(insuranceFields)]) form.elements[key].value = "";
+  get("booking-insurance").open = false;
+}
+
+groupPatientSelect.addEventListener("change", () => {
+  updatePatientFields();
+  showError(get("booking-error"), "");
+});
+addGroupPatient.addEventListener("click", () => {
+  try {
+    const selection = groupPatientSelect.value;
+    if (selection === "new") {
+      if ([...newPatientFields.querySelectorAll("input")].some((input) => !input.reportValidity())) return;
+      const entry = newPatientEntry(`patient-${crypto.randomUUID().replaceAll("-", "")}`, Object.fromEntries(new FormData(form)));
+      if (!entry.new_patient.first_name.trim() || !entry.new_patient.last_name.trim()) {
+        throw new Error("Enter a first and last name.");
+      }
+      groupMembers.push({ entry, name: patientLabel(entry.new_patient) });
+    } else {
+      const patient = patients.find((item) => item.reference === selection);
+      if (!patient) throw new Error("Choose a patient to add to the group.");
+      groupMembers.push({ entry: { patient: selection }, name: patientLabel(patient) });
+    }
+    clearPatientDraft();
+    updateGroupRoster();
+    groupPatientSelect.focus();
+    showError(get("booking-error"), "");
+  } catch (error) {
+    showError(get("booking-error"), error.message);
+  }
+});
+groupRosterDraft.addEventListener("click", (event) => {
+  const remove = event.target.closest("[data-remove-patient]");
+  if (!remove) return;
+  groupMembers = groupMembers.filter(({ entry }) => entry.patient !== remove.dataset.removePatient);
+  updateGroupRoster();
+  groupPatientSelect.focus();
+});
+
+function toggleFields(fieldset, enabled) {
+  fieldset.hidden = !enabled;
+  fieldset.disabled = !enabled;
+}
+
+function updateLocationFields() {
+  toggleFields(newLocationFields, locationType.value === "home" && locationSelect.value === "new");
+}
+
+async function updateLocations(preferred = "") {
+  const request = ++locationRequest;
+  const kind = locationType.value;
+  const group = appointmentType.value === "group";
+  const patient = group ? groupHomeSelect.value : patientSelect.value;
+  const home = kind === "home";
+  const savedPatient = group
+    ? patients.some((entry) => entry.reference === patient)
+    : patient && patient !== "new";
+  const prompt = home && !patient ? (group ? "Choose the host patient first" : "Choose a patient first") : "Choose a location";
+  showError(get("booking-error"), "");
+  lastBookingLocation = "";
+  locationSelect.replaceChildren(new Option(home && savedPatient ? "Loading saved homes…" : prompt, ""));
+  updateLocationFields();
+  try {
+    const locations = home
+      ? (savedPatient ? await api(`/api/patients/${encodeURIComponent(patient)}/homes`) : [])
+      : facilities.filter((facility) => facility.kind === kind && !facility.archived);
+    if (request !== locationRequest) return;
+    locationSelect.replaceChildren(
+      new Option(prompt, ""),
+      ...locations.map((location) => new Option(home ? locationAddress(location) : location.name, location.reference)),
+      ...(home && !patient ? [] : [new Option(addLocationLabels[kind], "new")]),
+    );
+    if (locations.some((location) => location.reference === preferred)) locationSelect.value = preferred;
+    lastBookingLocation = locationSelect.value;
+    updateLocationFields();
+  } catch (error) {
+    if (request !== locationRequest) return;
+    locationSelect.replaceChildren(new Option("Saved homes unavailable", ""));
+    showError(get("booking-error"), error.message);
+  }
+}
+
+function clearLocationDraft() {
+  for (const key of ["living_arrangement", ...addressFields]) {
+    form.elements[key].value = "";
+  }
+  newLocationReference = crypto.randomUUID().replaceAll("-", "");
 }
 
 get("new-appointment").addEventListener("click", () => {
   form.reset();
-  patientSelect.replaceChildren(
-    new Option("Choose a patient", ""),
-    new Option("Add new patient", "new"),
-    ...patients.map((patient) => {
-      const identifiers = patientIdentifiers(patient);
-      return new Option(identifiers ? `${patientLabel(patient)} · ${identifiers}` : patientLabel(patient), patient.reference);
-    }),
-  );
-  form.elements.location.replaceChildren(...facilities.map((facility) => new Option(facility.name, facility.reference)));
+  patientSelect.replaceChildren(...patientOptions());
   newPatientReference = `patient-${crypto.randomUUID().replaceAll("-", "")}`;
-  updatePatientFields();
+  groupReference = `group-${crypto.randomUUID().replaceAll("-", "")}`;
+  groupMembers = [];
+  clearPatientDraft();
+  updateGroupRoster();
+  clearLocationDraft();
+  updateLocations("clinic");
   form.elements.day.value = viewDay.value;
   showError(get("booking-error"), "");
   dialog.showModal();
 });
-patientSelect.addEventListener("change", updatePatientFields);
+appointmentType.addEventListener("change", () => {
+  clearPatientDraft();
+  updatePatientFields();
+  syncGroupHome();
+  if (locationType.value === "home") {
+    clearLocationDraft();
+    updateLocations();
+  }
+});
+patientSelect.addEventListener("change", () => {
+  updatePatientFields();
+  if (locationType.value === "home") {
+    clearLocationDraft();
+    updateLocations();
+  }
+});
+locationType.addEventListener("change", () => {
+  syncGroupHome();
+  clearLocationDraft();
+  updateLocations();
+});
+groupHomeSelect.addEventListener("change", () => {
+  clearLocationDraft();
+  updateLocations();
+});
+locationSelect.addEventListener("change", () => {
+  if (locationSelect.value === "new" && locationType.value !== "home") {
+    facilityHandoff = { previous: lastBookingLocation, saved: null };
+    dialog.close();
+    openFacilities();
+    return;
+  }
+  if (locationSelect.value !== "new") lastBookingLocation = locationSelect.value;
+  updateLocationFields();
+});
+dialog.addEventListener("close", () => { locationRequest++; });
 get("cancel-booking").addEventListener("click", () => dialog.close());
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -202,10 +511,22 @@ form.addEventListener("submit", async (event) => {
   submit.disabled = true;
   showError(get("booking-error"), "");
   try {
-    const { first_name, last_name, date_of_birth, chart_reference, ...values } = Object.fromEntries(new FormData(form));
-    if (values.patient === "new") {
-      values.patient = newPatientReference;
-      values.new_patient = { first_name, last_name, date_of_birth, chart_reference };
+    const fields = Object.fromEntries(new FormData(form));
+    const { patient, location, location_kind, mode, day, time } = fields;
+    const values = { location, location_kind, mode, day, time };
+    if (appointmentType.value === "group") {
+      if (groupPatientSelect.value) throw new Error("Add the selected patient to the group or clear the selection.");
+      if (!groupMembers.length) throw new Error("Add at least one patient to the group.");
+      values.group = { reference: groupReference, name: fields.group_name, patients: groupMembers.map(({ entry }) => entry) };
+      if (location_kind === "home") values.home_patient = fields.home_patient;
+    } else {
+      Object.assign(values, patient === "new" ? newPatientEntry(newPatientReference, fields) : { patient });
+    }
+    if (values.location === "new") {
+      values.location = `home-${newLocationReference}`;
+      values.new_location = Object.fromEntries(
+        ["living_arrangement", ...addressFields].map((key) => [key, fields[key]]),
+      );
     }
     const booked = await api("/api/appointments", values);
     selectedId = booked.id;
@@ -221,38 +542,180 @@ form.addEventListener("submit", async (event) => {
   }
 });
 
-function updateFacilityFields() {
-  const selected = facilities.find((facility) => facility.reference === facilitySelect.value);
-  facilityForm.elements.name.value = selected?.name ?? "";
-  facilityForm.elements.contract_status.value = selected?.contract_status ?? "unknown";
-  showError(get("facility-error"), "");
+function showFacilityView(view, title) {
+  get("facility-list-view").hidden = view !== "list";
+  get("facility-detail-view").hidden = view !== "detail";
+  facilityForm.hidden = view !== "editor";
+  get("facility-title").textContent = title;
+  facilityDialog.scrollTop = 0;
 }
 
-get("manage-facilities").addEventListener("click", () => {
-  facilitySelect.replaceChildren(
-    new Option("Add an assisted living facility", ""),
-    ...facilities.filter((facility) => facility.kind === "alf")
-      .map((facility) => new Option(facility.name, facility.reference)),
-  );
-  updateFacilityFields();
+function renderFacilityList() {
+  const query = facilitySearch.value.trim().toLowerCase();
+  const type = facilityTypeFilter.value;
+  const status = facilityStatusFilter.value;
+  const visible = facilities.filter((facility) => {
+    const matchesType = !type || (facility.facility_type ?? "unclassified") === type;
+    const matchesStatus = status === "all" || Boolean(facility.archived) === (status === "archived");
+    const searchText = [facility.name, facility.legal_name, facility.npi, locationAddress(facility)]
+      .filter(Boolean).join(" ").toLowerCase();
+    return matchesType && matchesStatus && searchText.includes(query);
+  });
+  facilityList.innerHTML = visible.map((facility) => {
+    const subtitle = [
+      facilityTypeLabels[facility.facility_type] || "Unclassified", facility.city,
+      facility.archived ? "Archived" : "",
+    ].filter(Boolean).join(" · ");
+    return `<li><button type="button" data-facility="${escapeHTML(facility.reference)}">
+      <strong>${escapeHTML(facility.name)}</strong><small>${escapeHTML(subtitle)}</small>
+    </button></li>`;
+  }).join("");
+  get("facility-list-empty").hidden = visible.length !== 0;
+}
+
+function showFacilityList() {
+  showFacilityView("list", "Facilities");
+  renderFacilityList();
+  const selectedRow = [...facilityList.querySelectorAll("[data-facility]")]
+    .find((item) => item.dataset.facility === selectedFacilityReference);
+  (selectedRow || facilitySearch).focus();
+}
+
+function showFacilityDetails(reference) {
+  const facility = facilities.find((entry) => entry.reference === reference);
+  if (!facility) return;
+  selectedFacilityReference = reference;
+  const details = [
+    ["Facility type", facilityTypeLabels[facility.facility_type] || "Unclassified"],
+    ["Status", facility.archived ? "Archived" : "Active"],
+    ["Legal operating name", facility.legal_name],
+    ["NPI", facility.npi],
+    ["Address", locationAddress(facility)],
+  ];
+  if (facility.kind === "alf") details.push(["Pharmacy contract", contractLabels[facility.contract_status]]);
+  get("facility-details").innerHTML = details.map(([label, value]) =>
+    `<dt>${label}</dt><dd>${escapeHTML(value || "Not recorded")}</dd>`).join("");
+  get("change-facility-status").textContent = facility.archived ? "Restore facility" : "Archive facility";
+  showError(get("facility-detail-error"), "");
+  showFacilityView("detail", facility.name);
+  get("facility-title").focus();
+}
+
+function showFacilityEditor(facility = null) {
+  facilityForm.reset();
+  facilityForm.elements.reference.value = facility?.reference ?? "";
+  facilityType.value = facility?.facility_type ?? "";
+  facilityForm.elements.name.value = facility?.name ?? "";
+  facilityForm.elements.contract_status.value = facility?.contract_status ?? "unknown";
+  for (const key of siteDetails) {
+    facilityForm.elements[key].value = facility?.[key] ?? "";
+    if (key !== "address_line_2") {
+      facilityForm.elements[key].required = !facility || Boolean(facility.legal_name);
+    }
+  }
+  updateFacilityContract();
+  showError(get("facility-error"), "");
+  showFacilityView("editor", facility ? "Edit facility" : "New facility");
+  facilityType.focus();
+}
+
+function updateFacilityContract() {
+  toggleFields(get("facility-contract-fields"), facilityType.value !== "" && facilityType.value !== "office");
+}
+
+function openFacilities() {
+  selectedFacilityReference = null;
   facilityDialog.showModal();
+  if (facilityHandoff) showFacilityEditor();
+  else showFacilityList();
+}
+
+get("manage-facilities").addEventListener("click", openFacilities);
+get("close-facilities").addEventListener("click", () => facilityDialog.close());
+facilitySearch.addEventListener("input", renderFacilityList);
+facilityTypeFilter.addEventListener("change", renderFacilityList);
+facilityStatusFilter.addEventListener("change", renderFacilityList);
+facilityList.addEventListener("click", (event) => {
+  const row = event.target.closest("[data-facility]");
+  if (row) showFacilityDetails(row.dataset.facility);
 });
-facilitySelect.addEventListener("change", updateFacilityFields);
-get("cancel-facility").addEventListener("click", () => facilityDialog.close());
+get("add-facility").addEventListener("click", () => showFacilityEditor());
+get("facility-back").addEventListener("click", showFacilityList);
+get("edit-facility").addEventListener("click", () => {
+  showFacilityEditor(facilities.find((facility) => facility.reference === selectedFacilityReference));
+});
+facilityType.addEventListener("change", updateFacilityContract);
+facilityDialog.addEventListener("close", () => {
+  if (!facilityHandoff) return;
+  const { previous, saved } = facilityHandoff;
+  facilityHandoff = null;
+  if (saved) locationType.value = saved.kind;
+  updateLocations(saved?.reference ?? previous);
+  dialog.showModal();
+  locationSelect.focus();
+});
+facilityDialog.addEventListener("cancel", (event) => {
+  if (facilityBusy) {
+    event.preventDefault();
+  } else if (!facilityHandoff && !facilityForm.hidden) {
+    event.preventDefault();
+    cancelFacilityEditor();
+  }
+});
+
+function cancelFacilityEditor() {
+  if (facilityHandoff) facilityDialog.close();
+  else if (facilityForm.elements.reference.value) showFacilityDetails(facilityForm.elements.reference.value);
+  else showFacilityList();
+}
+
+function setFacilityBusy(busy) {
+  facilityBusy = busy;
+  for (const id of ["close-facilities", "cancel-facility", "facility-back", "edit-facility", "change-facility-status"]) {
+    get(id).disabled = busy;
+  }
+  facilityForm.querySelector('[type="submit"]').disabled = busy;
+}
+
+get("cancel-facility").addEventListener("click", cancelFacilityEditor);
+get("change-facility-status").addEventListener("click", async () => {
+  const facility = facilities.find((entry) => entry.reference === selectedFacilityReference);
+  const action = facility.archived ? "restore" : "archive";
+  setFacilityBusy(true);
+  showError(get("facility-detail-error"), "");
+  try {
+    await api(`/api/facilities/${encodeURIComponent(facility.reference)}/${action}`, {});
+    await refresh();
+    showFacilityDetails(facility.reference);
+    get("notice").textContent = facility.archived ? "Facility restored." : "Facility archived.";
+  } catch (error) {
+    showError(get("facility-detail-error"), error.message);
+  } finally {
+    setFacilityBusy(false);
+  }
+});
 facilityForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const submit = facilityForm.querySelector('[type="submit"]');
-  submit.disabled = true;
+  setFacilityBusy(true);
   showError(get("facility-error"), "");
   try {
-    const saved = await api("/api/facilities", Object.fromEntries(new FormData(facilityForm)));
+    const values = Object.fromEntries(new FormData(facilityForm));
+    if (values.reference && siteDetails.every((key) => !values[key].trim())) {
+      for (const key of siteDetails) delete values[key];
+    }
+    const saved = await api("/api/facilities", values);
     await refresh();
-    facilityDialog.close();
+    if (facilityHandoff) {
+      facilityHandoff.saved = saved;
+      facilityDialog.close();
+    } else {
+      showFacilityDetails(saved.reference);
+    }
     get("notice").textContent = `${saved.name} saved.`;
   } catch (error) {
     showError(get("facility-error"), error.message);
   } finally {
-    submit.disabled = false;
+    setFacilityBusy(false);
   }
 });
 

@@ -30,8 +30,11 @@ Topic: `xf-project-openpractice`.
 
 **Phase 1** is a local, single-operator rehearsal. Enter a synthetic patient's
 first and last name, with date of birth and a chart reference when useful, or
-pick a saved patient. Book an in-person or telemedicine visit at the clinic or
-a registered assisted living facility. One screen records arrival or session availability, patient
+pick a saved patient. Book an in-person or telemedicine visit at an office or
+clinic, a facility, or a patient's home. For a group visit, add patients to one
+appointment and expand its roster to view patient details and enter primary
+insurance. The schedule uses the group label and tracks session progress for
+the whole group. One screen records arrival or session availability, patient
 readiness, session start, session end and wrap-up. Session end signals the
 room or call can be released and administrative handoff can begin. Wrap-up
 requires explicit confirmation that the clinician finished charting and marks
@@ -46,9 +49,18 @@ $env:PYTHONPATH = Join-Path (Get-Location) 'src'
 python -m open_practice.session_desk --database (Join-Path $env:LOCALAPPDATA 'openPractice\session-desk.sqlite3')
 ```
 
-Open `http://127.0.0.1:17824/` on the same machine. Use **Facilities** to register
-an assisted living facility and record whether the pharmacy has a contract with
-it. The facility then appears as a location when booking an appointment.
+Open `http://127.0.0.1:17824/` on the same machine. When booking, select a location
+type, then choose a saved location or add one. Adding an office or facility
+opens **Facilities** so staff can choose its type and enter its name, legal
+operating name, NPI and address. Saving returns to the appointment with the
+new facility selected. For a patient's home, record the address and living
+arrangement in the appointment form. Saved homes appear for their associated
+patient.
+
+Open **Facilities** to search by name, NPI or address and filter by type or
+status. Select a facility to view its information, edit it, or archive it.
+Archived facilities stay in appointment history and can be restored from the
+directory.
 
 **Phase 2** adds the live chart completion and billing handoff, shared access
 for staff, and the agreed administrative and clinical boundaries for telemedicine

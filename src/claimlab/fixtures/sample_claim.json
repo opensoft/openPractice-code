@@ -1,0 +1,59 @@
+{
+  "submitter": {
+    "id": "SUBMITTER01",
+    "name": "Demo Clinic",
+    "contact": "Billing Contact",
+    "phone": "7875550100"
+  },
+  "receiver": {
+    "id": "RECEIVERID",
+    "name": "Novitas Solutions"
+  },
+  "billing_provider": {
+    "name": "Demo Clinic",
+    "npi": "1234567893",
+    "address": "100 Main St",
+    "city": "San Juan",
+    "state": "PR",
+    "zip": "00901",
+    "tax_id": "123456789"
+  },
+  "claims": [
+    {
+      "patient": {
+        "last": "Doe",
+        "first": "Jane",
+        "member_id": "1EG4TE5MK73",
+        "address": "1 Example Ave",
+        "city": "San Juan",
+        "state": "PR",
+        "zip": "00901",
+        "dob": "19450101",
+        "sex": "F"
+      },
+      "payer": {
+        "name": "Medicare Part B",
+        "id": "12345",
+        "filing": "MB"
+      },
+      "claim": {
+        "id": "PATIENT001",
+        "pos": "11",
+        "diagnoses": [
+          "E11.9"
+        ],
+        "lines": [
+          {
+            "cpt": "99213",
+            "charge": 150,
+            "units": 1,
+            "date": "20261120",
+            "dx_pointers": [
+              1
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

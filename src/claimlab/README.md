@@ -52,10 +52,11 @@ describe the outcome at each stage. Download these files from
 
 The prototype supports one ISA/IEA, GS/GE, and ST/SE for an 837P
 005010X222A1 batch using the * : ~ ^ delimiters and selected primary
-Medicare Part B validation rules. The 25 synthetic subscribers are
-TAYLOR DEMO with member IDs `SYNTH00001` through `SYNTH00025` and
-birth dates January 1 through January 25, 1960 respectively. The batch
-example includes all 25 records so developers can reuse their details.
+Medicare Part B validation rules. The sandbox knows 260 synthetic
+subscribers, SYNTH00001 through SYNTH00260. The first 25 are TAYLOR DEMO
+with birth dates January 1 through January 25, 1960 respectively. The
+25-claim example includes the original set. The seeded test corpus
+uses all 260 subscribers.
 
 The API returns JSON simulations of a TA1 interchange acknowledgment,
 999 file acknowledgment, and 277CA claim acknowledgment. Issue codes
@@ -66,6 +67,46 @@ Reference examples:
 [CMS professional claim edits](https://www.cms.gov/Regulations-and-Guidance/Guidance/Transmittals/Downloads/R1440OTN.pdf),
 [Wisconsin ForwardHealth 999 guide](https://www.dhs.wisconsin.gov/publications/p0/p00268.pdf),
 and [Novitas 277CA training](https://www.novitas-solutions.com/webcenter/content/conn/UCM_Repository/uuid/dDocName:00004758).
+
+## Seeded test corpus
+
+Generate both suites into a new folder outside the checkout. The CLI writes
+the X12 files and `manifest.json` together.
+
+```sh
+python -m src.claimlab.corpus generate ../claimlab-test-data --seed 837
+python -m src.claimlab.corpus verify ../claimlab-test-data
+python -m src.claimlab.corpus verify ../claimlab-test-data --api http://127.0.0.1:8765
+```
+
+The last command uses a running ClaimLab sandbox. Use `--suite regression`
+or `--suite bulk` on `generate` to build a single suite. The seed controls
+the bulk claim order, dates, codes, charges, and placement of failures.
+The regression fixtures have fixed contents.
+
+- **Bulk:** 35,000 claims in 350 files of 100 claims. The varied cohort has
+  250 subscribers with 100 claims each. The repeated cohort has 10
+  subscribers with 1,000 claims each. Exactly 30% of each subscriber's
+  claims are rejected at the 277CA stage. The four equally represented
+  failures are an unknown subscriber, a wrong date of birth, missing
+  service lines, and an unbalanced total charge.
+- **Regression:** 11 files cover a passing control and 10 failure
+  scenarios across TA1, 999, and 277CA. Every 277CA failure sits beside a
+  passing claim. The manifest counts claims stopped by TA1 or 999 as
+  blocked.
+
+The manifest gives each file's SHA-256 digest, interchange control number,
+and expected acknowledgment statuses. Each claim has an ID, position,
+synthetic subscriber ID before any mutation, named scenario, and expected
+outcome and issue codes. Verification checks the fixture bytes and
+compares the sandbox results to those expectations. The generator uses
+original fictional identities shared with the sandbox and works offline.
+
+Run the small suite with:
+
+```sh
+python -m unittest src.claimlab.test_corpus src.claimlab.test_sandbox
+```
 
 ## CLI
 

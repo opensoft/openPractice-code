@@ -10,14 +10,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files
 
 from . import x837p
+from .synthetic import DEMO_MEMBER_IDS, MEMBER_COUNT, TEST_SUBSCRIBERS, synthetic_claim, synthetic_interchange
 
 
 MAX_BYTES = 1024 * 1024
-TEST_MEMBER_ID = "SYNTH00001"
-TEST_SUBSCRIBERS = {
-    f"SYNTH{day:05d}": {"first": "TAYLOR", "last": "DEMO", "dob": f"196001{day:02d}"}
-    for day in range(1, 26)
-}
 EXAMPLES = {
     "accepted.837", "accepted-25.837", "claim-rejected.837", "file-rejected.837",
     "missing-clm02.837", "invalid-total-charge.837",
@@ -135,9 +131,9 @@ def simulate_claims(segments):
             if not in_subscriber_loop:
                 issues.append(issue("SUBSCRIBER_REQUIRED", "Place the claim under a self-subscriber HL."))
             elif subscriber is None:
-                issues.append(issue("TEST_MEMBER_UNKNOWN", "Use SYNTH00001 through SYNTH00025 in Loop 2010BA NM109."))
+                issues.append(issue("TEST_MEMBER_UNKNOWN", f"Use SYNTH00001 through SYNTH{MEMBER_COUNT:05d} in Loop 2010BA NM109."))
             elif {"first": first, "last": last, "dob": dob} != subscriber:
-                issues.append(issue("TEST_DEMOGRAPHICS_MISMATCH", "Use the name and DOB in the ClaimLab batch example for this member."))
+                issues.append(issue("TEST_DEMOGRAPHICS_MISMATCH", "Use the name and DOB from the ClaimLab synthetic roster for this member."))
             claim = {"number": len(claims) + 1, "issues": issues, "total": Decimal(segment[2]), "line_total": None}
             claims.append(claim)
         elif kind == "SV1" and claim is not None:
@@ -155,32 +151,14 @@ def simulate_claims(segments):
 
 
 def example(name):
-    members = TEST_SUBSCRIBERS if name == "accepted-25.837" else [TEST_MEMBER_ID]
-    claims = []
-    for ordinal, member_id in enumerate(members, 1):
-        claims.append({
-            "patient": {
-                **TEST_SUBSCRIBERS[member_id],
-                "member_id": "SYNTH99999" if name == "claim-rejected.837" else member_id,
-                "address": "2 Example Way", "city": "Denver", "state": "CO", "zip": "80202", "sex": "U",
-            },
-            "payer": {"name": "Demo Medicare Part B", "id": "04112"},
-            "claim": {
-                "id": f"CLAB-DEMO-{ordinal:03d}", "pos": "60", "diagnoses": ["Z23"],
-                "lines": [{"cpt": "G0008", "charge": 30, "date": "20261120"}],
-            },
-        })
-    data = {
-        "submitter": {"id": "CLAIMLABTEST", "name": "ClaimLab Demo", "contact": "Test Contact", "phone": "3035550100"},
-        "receiver": {"id": "04112", "name": "Demo Medicare Part B", "qualifier": "27"},
-        "billing_provider": {
-            "name": "ClaimLab Demo Pharmacy", "npi": "0000000000", "tax_id": "000000000",
-            "address": "1 Example Way", "city": "Denver", "state": "CO", "zip": "802020000",
-        },
-        "request_interchange_ack": True,
-        "claims": claims,
-    }
-    edi = x837p.build(data, ctrl=1, now=datetime(2026, 11, 26, 12))
+    members = DEMO_MEMBER_IDS if name == "accepted-25.837" else DEMO_MEMBER_IDS[:1]
+    claims = [
+        synthetic_claim(member_id, f"CLAB-DEMO-{ordinal:03d}", [{"cpt": "G0008", "charge": 30, "date": "20261120"}])
+        for ordinal, member_id in enumerate(members, 1)
+    ]
+    if name == "claim-rejected.837":
+        claims[0]["patient"]["member_id"] = "SYNTH99999"
+    edi = x837p.build(synthetic_interchange(claims), ctrl=1, now=datetime(2026, 11, 26, 12))
     if name == "file-rejected.837":
         edi = edi.replace("IEA*1*000000001", "IEA*1*000000002")
     elif name == "missing-clm02.837":

@@ -51,8 +51,10 @@ python -m open_practice.session_desk --database (Join-Path $env:LOCALAPPDATA 'op
 
 Open `http://127.0.0.1:17824/` on the same machine. When booking, select a location
 type, then choose a saved location or add one. Adding an office or facility
-opens **Facilities** so staff can choose its type and enter its name, legal
-operating name, NPI and address. Saving returns to the appointment with the
+opens **Facilities**. Entering the 10-digit NPI looks up an organization in
+the CMS NPI Registry and suggests its name, primary practice address, and
+facility type when the registry has a recognized classification. Review or
+edit the details before saving. Saving returns to the appointment with the
 new facility selected. For a patient's home, record the address and living
 arrangement in the appointment form. Saved homes appear for their associated
 patient.

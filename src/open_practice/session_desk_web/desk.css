@@ -88,6 +88,8 @@ dialog select, dialog input { width: 100%; min-width: 0; }
 .facility-details { display: grid; grid-template-columns: 9rem minmax(0, 1fr); gap: .55rem .75rem; margin: .8rem 0 0; }
 .facility-details dt { color: var(--muted); }
 .facility-details dd { margin: 0; overflow-wrap: anywhere; }
+.npi-feedback > :not([hidden]) { margin-bottom: .85rem; }
+.npi-feedback p { font-size: .86rem; color: var(--muted); }
 .patient-fields, .detail-fields { margin: 0 0 .9rem; padding: .7rem .8rem 0; min-width: 0; border: 1px solid var(--line); border-radius: 8px; background: #f7faf9; }
 .patient-fields legend, .detail-fields legend { font-size: .85rem; font-weight: 700; padding: 0 .25rem; }
 .field-group { margin: 0; padding: 0; border: 0; min-width: 0; }

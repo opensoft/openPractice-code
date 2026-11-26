@@ -11,6 +11,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from uuid import uuid4
 
+from open_practice.npi_registry import NPI_PATTERN, RegistryUnavailable, lookup_facility
+
 
 STAGES = ("scheduled", "available", "ready", "started", "ended", "wrapped")
 PATIENT_FIELDS = ("first_name", "last_name", "date_of_birth", "chart_reference")
@@ -24,6 +26,7 @@ INSURANCE_FIELDS = (
 )
 CONTRACT_STATUSES = ("unknown", "no_contract", "contracted")
 FACILITY_TYPES = ("office", "alf", "snf", "hospital", "other")
+FACILITY_NAME_LIMIT = 255
 LIVING_ARRANGEMENTS = ("alone", "with_caregiver")
 ADDRESS_FIELDS = (
     ("street_address", "street address", 120),
@@ -156,9 +159,9 @@ def _insurance_values(details):
 
 
 def _site_values(details):
-    legal_name = _location_text(details, "legal_name", "legal operating name", 120)
+    legal_name = _location_text(details, "legal_name", "legal operating name", FACILITY_NAME_LIMIT)
     npi = details.get("npi")
-    if not isinstance(npi, str) or not re.fullmatch(r"[0-9]{10}", npi.strip()):
+    if not isinstance(npi, str) or not re.fullmatch(NPI_PATTERN, npi.strip()):
         raise ValueError("Enter a 10-digit NPI for the location.")
     return {"legal_name": legal_name, "npi": npi.strip(), **_address_values(details)}
 
@@ -371,7 +374,7 @@ class SessionDesk:
             if facility_type not in FACILITY_TYPES and not keep_unclassified:
                 raise ValueError("Choose a facility type.")
             kind = "clinic" if facility_type == "office" else "alf"
-            name = _location_text(values, "name", "location name", 120)
+            name = _location_text(values, "name", "location name", FACILITY_NAME_LIMIT)
             old_status = existing["contract_status"] if existing else None
             status = values.get("contract_status", old_status or "unknown") if kind == "alf" else old_status
             if kind == "alf" and status not in CONTRACT_STATUSES:
@@ -548,6 +551,7 @@ def make_server(desk, port=17824):
             self.wfile.write(data)
 
         def do_GET(self):
+            npi = re.fullmatch(rf"/api/facilities/npi/({NPI_PATTERN})", self.path)
             homes = re.fullmatch(rf"/api/patients/{PATIENT_REFERENCE}/homes", self.path)
             roster = re.fullmatch(r"/api/appointments/([1-9][0-9]{0,17})/patients", self.path)
             if self.path in STATIC_ROUTES:
@@ -559,6 +563,11 @@ def make_server(desk, port=17824):
                 self.respond(HTTPStatus.OK, desk.patients())
             elif self.path == "/api/facilities":
                 self.respond(HTTPStatus.OK, desk.facilities())
+            elif npi:
+                try:
+                    self.respond(HTTPStatus.OK, lookup_facility(npi[1]))
+                except RegistryUnavailable as error:
+                    self.respond(HTTPStatus.BAD_GATEWAY, {"error": str(error)})
             elif homes:
                 self.respond(HTTPStatus.OK, desk.patient_homes(homes[1]))
             elif roster:

@@ -187,6 +187,14 @@
     </section>
     <form id="facility-form" hidden>
       <input type="hidden" name="reference">
+      <label>NPI for this location
+        <input name="npi" type="text" inputmode="numeric" pattern="[0-9]{10}" maxlength="10"
+          autocomplete="off" aria-describedby="facility-npi-status" required>
+      </label>
+      <div class="npi-feedback">
+        <p id="facility-npi-status" role="status" hidden></p>
+        <button type="button" id="apply-registry-details" hidden>Use registry details</button>
+      </div>
       <label><span id="facility-type-label">Facility type</span>
         <select name="facility_type" aria-labelledby="facility-type-label" required>
           <option value="">Choose a facility type</option>
@@ -208,9 +216,8 @@
     </form>
   </dialog>
   <template id="site-fields-template">
-    <label>Location name <input name="name" type="text" maxlength="120" required></label>
-    <label>Legal operating name <input name="legal_name" type="text" maxlength="120" required></label>
-    <label>NPI for this location <input name="npi" type="text" inputmode="numeric" pattern="[0-9]{10}" maxlength="10" required></label>
+    <label>Location name <input name="name" type="text" maxlength="255" required></label>
+    <label>Legal operating name <input name="legal_name" type="text" maxlength="255" required></label>
   </template>
   <template id="address-fields-template">
     <label>Street address <input name="street_address" type="text" maxlength="120" required></label>

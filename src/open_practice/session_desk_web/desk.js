@@ -42,6 +42,9 @@ const newLocationFields = get("new-location-fields");
 const facilityDialog = get("facility-dialog");
 const facilityForm = get("facility-form");
 const facilityType = facilityForm.elements.facility_type;
+const facilityNpi = facilityForm.elements.npi;
+const npiStatus = get("facility-npi-status");
+const applyRegistryDetails = get("apply-registry-details");
 const facilityTypeLabels = Object.fromEntries([...facilityType.options].map((option) => [option.value, option.text]));
 const facilitySearch = get("facility-search");
 const facilityTypeFilter = get("facility-filter-type");
@@ -63,6 +66,10 @@ let lastBookingLocation = "";
 let facilityHandoff = null;
 let selectedFacilityReference = null;
 let facilityBusy = false;
+let npiLookupTimer;
+let npiLookupController;
+let matchedFacilityFields = null;
+const npiAutofilled = new Map();
 
 facilityTypeFilter.append(...[...facilityType.options].filter((option) => option.value).map((option) => option.cloneNode(true)));
 
@@ -139,11 +146,11 @@ function showError(element, message) {
   element.hidden = !message;
 }
 
-async function api(path, values) {
+async function api(path, values, signal) {
   const options = values === undefined ? {} : {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(values),
   };
-  const response = await fetch(path, options);
+  const response = await fetch(path, { ...options, signal });
   const result = await response.json();
   if (!response.ok) throw new Error(result.error);
   return result;
@@ -543,6 +550,7 @@ form.addEventListener("submit", async (event) => {
 });
 
 function showFacilityView(view, title) {
+  if (view !== "editor") resetNpiLookup();
   get("facility-list-view").hidden = view !== "list";
   get("facility-detail-view").hidden = view !== "detail";
   facilityForm.hidden = view !== "editor";
@@ -602,6 +610,7 @@ function showFacilityDetails(reference) {
 }
 
 function showFacilityEditor(facility = null) {
+  resetNpiLookup();
   facilityForm.reset();
   facilityForm.elements.reference.value = facility?.reference ?? "";
   facilityType.value = facility?.facility_type ?? "";
@@ -616,12 +625,88 @@ function showFacilityEditor(facility = null) {
   updateFacilityContract();
   showError(get("facility-error"), "");
   showFacilityView("editor", facility ? "Edit facility" : "New facility");
-  facilityType.focus();
+  facilityNpi.focus();
 }
 
 function updateFacilityContract() {
   toggleFields(get("facility-contract-fields"), facilityType.value !== "" && facilityType.value !== "office");
 }
+
+function setNpiStatus(message) {
+  npiStatus.textContent = message;
+  npiStatus.hidden = !message;
+}
+
+function resetNpiLookup() {
+  clearTimeout(npiLookupTimer);
+  npiLookupController?.abort();
+  matchedFacilityFields = null;
+  npiAutofilled.clear();
+  applyRegistryDetails.hidden = true;
+  setNpiStatus("");
+}
+
+function updateRegistryButton() {
+  applyRegistryDetails.hidden = !matchedFacilityFields || !Object.entries(matchedFacilityFields).some(([key, value]) =>
+    key !== "facility_type" && facilityForm.elements[key].value.trim() !== value
+  );
+}
+
+function fillFromRegistry(replace = false) {
+  for (const [key, value] of Object.entries(matchedFacilityFields)) {
+    const input = facilityForm.elements[key];
+    if (input.value.trim() === value || (input.value.trim() && (!replace || key === "facility_type"))) continue;
+    input.value = value;
+    npiAutofilled.set(key, value);
+  }
+  updateFacilityContract();
+  updateRegistryButton();
+}
+
+async function lookUpNpi(npi, signal) {
+  try {
+    const result = await api(`/api/facilities/npi/${npi}`, undefined, signal);
+    if (signal.aborted || !facilityDialog.open || facilityForm.hidden) return;
+    if (result.match !== "organization") {
+      setNpiStatus({
+        individual: "This NPI is registered to an individual. Enter the facility details.",
+        inactive: "The registry lists this NPI as inactive. Check the NPI before saving.",
+        not_found: "No organization was found for this NPI. You can enter the facility details manually.",
+      }[result.match]);
+      return;
+    }
+    matchedFacilityFields = result.fields;
+    fillFromRegistry();
+    setNpiStatus(result.fields.street_address
+      ? "Organization found. Review the registry details and practice address before saving."
+      : "Organization found. Enter the facility’s practice address.");
+  } catch (error) {
+    if (!signal.aborted) {
+      setNpiStatus("The NPI Registry is unavailable. You can enter the facility details manually.");
+    }
+  }
+}
+
+facilityNpi.addEventListener("input", () => {
+  for (const [key, value] of npiAutofilled) {
+    const input = facilityForm.elements[key];
+    if (input.value === value) input.value = "";
+  }
+  resetNpiLookup();
+  updateFacilityContract();
+  const npi = facilityNpi.value.trim();
+  if (!/^[0-9]{10}$/.test(npi)) return;
+  setNpiStatus("Searching the NPI Registry…");
+  const controller = new AbortController();
+  npiLookupController = controller;
+  npiLookupTimer = setTimeout(() => lookUpNpi(npi, controller.signal), 300);
+});
+facilityForm.addEventListener("input", updateRegistryButton);
+applyRegistryDetails.addEventListener("click", () => {
+  fillFromRegistry(true);
+  setNpiStatus("Registry details applied. Review the practice address before saving.");
+  facilityForm.elements.name.focus();
+});
 
 function openFacilities() {
   selectedFacilityReference = null;
@@ -646,6 +731,7 @@ get("edit-facility").addEventListener("click", () => {
 });
 facilityType.addEventListener("change", updateFacilityContract);
 facilityDialog.addEventListener("close", () => {
+  resetNpiLookup();
   if (!facilityHandoff) return;
   const { previous, saved } = facilityHandoff;
   facilityHandoff = null;
@@ -671,7 +757,7 @@ function cancelFacilityEditor() {
 
 function setFacilityBusy(busy) {
   facilityBusy = busy;
-  for (const id of ["close-facilities", "cancel-facility", "facility-back", "edit-facility", "change-facility-status"]) {
+  for (const id of ["close-facilities", "cancel-facility", "facility-back", "edit-facility", "change-facility-status", "apply-registry-details"]) {
     get(id).disabled = busy;
   }
   facilityForm.querySelector('[type="submit"]').disabled = busy;

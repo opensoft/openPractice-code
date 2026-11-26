@@ -1,9 +1,12 @@
 import json
+from io import BytesIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Thread
 from unittest import TestCase
+from unittest.mock import patch
 from urllib.error import HTTPError
+from urllib.parse import parse_qs, urlsplit
 from urllib.request import Request, urlopen
 
 from open_practice.session_desk import SessionDesk, make_server
@@ -116,6 +119,51 @@ class SessionDeskTest(TestCase):
             self.assertEqual(response.code, 400)
         self.assertEqual(self.request("/api/appointments"), [])
         self.assertEqual([row["reference"] for row in self.request("/api/facilities")], ["clinic"])
+
+    def test_facility_npi_lookup_uses_organization_name_and_practice_address(self):
+        npi = SITE["npi"]
+        payload = {"result_count": 1, "results": [{
+            "number": npi, "enumeration_type": "NPI-2",
+            "basic": {"organization_name": "Example Health LLC", "status": "A", "authorized_official_first_name": "Hidden"},
+            "other_names": [
+                {"organization_name": "Previous name", "type": "Former Legal Business Name"},
+                {"organization_name": "Example Health", "type": "Doing Business As"},
+            ],
+            "taxonomies": [{"code": "314000000X", "primary": True}],
+            "addresses": [
+                {"address_purpose": "MAILING", "address_1": "PO Box 12"},
+                {
+                    "address_purpose": "LOCATION", "address_1": "10 Example Street", "address_2": "Suite 2",
+                    "city": "Denver", "state": "CO", "postal_code": "802020001", "country_code": "US",
+                },
+            ],
+        }]}
+        with patch("open_practice.npi_registry.urlopen", return_value=BytesIO(json.dumps(payload).encode())) as registry:
+            result = self.request(f"/api/facilities/npi/{npi}")
+        request = urlsplit(registry.call_args.args[0].full_url)
+        self.assertEqual(request.netloc, "npiregistry.cms.hhs.gov")
+        self.assertEqual(parse_qs(request.query), {"version": ["2.1"], "number": [npi]})
+        self.assertEqual(result, {"match": "organization", "fields": {
+            **ADDRESS, "postal_code": "80202-0001", "facility_type": "snf",
+            "name": "Example Health", "legal_name": "Example Health LLC",
+        }})
+        self.assertEqual([row["reference"] for row in self.request("/api/facilities")], ["clinic"])
+
+    def test_facility_npi_lookup_leaves_unmatched_and_individual_records_manual(self):
+        path = f"/api/facilities/npi/{SITE['npi']}"
+        for records, match in (
+            ([], "not_found"),
+            ([{"number": SITE["npi"], "enumeration_type": "NPI-1", "basic": {"first_name": "Example"}}], "individual"),
+            ([{"number": SITE["npi"], "enumeration_type": "NPI-2", "basic": {"status": "D"}}], "inactive"),
+        ):
+            payload = BytesIO(json.dumps({"results": records}).encode())
+            with self.subTest(match=match), patch("open_practice.npi_registry.urlopen", return_value=payload):
+                self.assertEqual(self.request(path), {"match": match})
+        with patch("open_practice.npi_registry.urlopen", side_effect=TimeoutError), self.assertRaises(HTTPError) as failed:
+            self.request(path)
+        with failed.exception as response:
+            self.assertEqual(response.code, 502)
+            self.assertIn("manually", json.load(response)["error"])
 
     def test_archived_facility_preserves_appointment_history_and_can_be_restored(self):
         details = {"name": "Example Hospital", "facility_type": "hospital", **SITE}

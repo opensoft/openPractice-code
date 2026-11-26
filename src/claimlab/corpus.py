@@ -75,10 +75,10 @@ def bulk_batches(seed):
             for member, visit in plans[offset:offset + BATCH_SIZE]:
                 claim_number += 1
                 service_date = date(2026, 1, 1) + timedelta(days=service_rng.randrange(320))
-                lines = profile.lines(service_rng, service_date.strftime("%Y%m%d"))
+                pos, lines = profile.service(service_rng, service_date.strftime("%Y%m%d"))
                 fault = faults.pop() if (member, visit) in rejects else None
                 cases.append(ClaimCase(member, f"CLAB-B{claim_number:07d}", lines, fault,
-                                       pos="11", diagnoses=("E119",)))
+                                       pos=pos, diagnoses=("E119",)))
             filename = f"bulk/{cohort}-{offset // BATCH_SIZE + 1:04d}.837"
             yield filename, control, cases, None
 
@@ -116,7 +116,7 @@ def render_batch(control, cases, file_fault):
         claims.append(claim)
 
     data = synthetic_interchange(claims)
-    if any(claim["claim"]["pos"] == "11" for claim in claims):
+    if any(case.claim_id.startswith("CLAB-B") for case in cases):
         data["billing_provider"]["name"] = "ClaimLab Demo Clinic"
     data["batch_ref"] = f"CLAB-{control:09d}"
     segments = x837p.build_segments(data, ctrl=control, now=TRANSMISSION_TIME)

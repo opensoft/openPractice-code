@@ -109,27 +109,37 @@ synthetic subscriber ID before any mutation, named scenario, and expected
 outcome and issue codes. Verification checks the fixture bytes and
 compares the sandbox results to those expectations. The generator uses
 original fictional identities shared with the sandbox and works offline.
-For bulk suites the manifest also records the name, source, and SHA-256
-digest of the packaged Carrier profile.
+For bulk suites the manifest also records the name, both CMS sources, and
+SHA-256 digest of the packaged Carrier profile.
 
 ### CMS Carrier service-line patterns
 
-Bulk claims draw line counts from records with one to 13 positive allowed
-amounts paired with HCPCS codes in both Carrier archives of CMS DE-SynPUF
-Sample 1. The profile keeps common combinations of office and lab codes and
-uses shorter observed combinations plus other observed office and lab codes
-when longer combinations are scarce. Per-code $5 bands of historical allowed
-amounts shape the generated test charges. These charges are synthetic.
-The exporter assigns the office place of service, diagnosis, dates, and
-identifiers independently of the CMS records. The profile contains aggregate
-counts and source archive digests. See the [CMS Carrier sample downloads](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-claims-synthetic-public-use-files/cms-2008-2010-data-entrepreneurs-synthetic-public-use-file-de-synpuf/de10-sample-1).
+Bulk claims sample the first procedure and its place of service together
+using the `CAR_LINE_CNT` weights in the 2010 Basic Stand Alone Carrier Line
+Items Public Use File. The profile uses the office and lab procedure codes
+that also have allowed-charge data in DE-SynPUF.
 
-Download the two Carrier ZIPs outside the checkout. Rebuild the profile with
-the following command.
+The generator draws a target number of lines from the priced claims across
+both 2008–2010 DE-SynPUF Sample 1 Carrier archives. It takes the largest
+observed combination that fits the target, includes the first procedure,
+and has procedure and POS pairs present in the public-use counts. If none
+fits, it emits a single line. Historical allowed amounts supply per-code
+$5 bands for synthetic charges. ClaimLab supplies the identities, ICD-10
+code, and dates. These historical patterns support sandbox testing.
+
+Download the [two DE-SynPUF Carrier ZIPs](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-claims-synthetic-public-use-files/cms-2008-2010-data-entrepreneurs-synthetic-public-use-file-de-synpuf/de10-sample-1)
+and the [2010 Carrier Line Items ZIP](https://www.cms.gov/research-statistics-data-and-systems/downloadable-public-use-files/bsapufs/downloads/2010_carrier_puf.zip)
+outside the checkout. Rebuild the packaged profile with:
 
 ```sh
-python -m src.claimlab.carrier_profile /path/to/DE1_0_2008_to_2010_Carrier_Claims_Sample_1A.zip /path/to/DE1_0_2008_to_2010_Carrier_Claims_Sample_1B.zip --output src/claimlab/fixtures/carrier-profile.json
+python -m src.claimlab.carrier_profile /path/to/DE1_0_2008_to_2010_Carrier_Claims_Sample_1A.zip /path/to/DE1_0_2008_to_2010_Carrier_Claims_Sample_1B.zip --frequency-archive /path/to/2010_carrier_puf.zip --output src/claimlab/fixtures/carrier-profile.json
 ```
+
+The DE-SynPUF combinations already include 2008. For a copy of the 2008
+Basic Stand Alone Carrier CSV in a ZIP, repeat `--frequency-archive` to
+pool its one-line-per-row counts with the 2010 counts. The packaged profile
+uses the verified 2010 frequency archive. It stores aggregate counts and
+the SHA-256 digest of each input archive.
 
 Run the small suite with
 

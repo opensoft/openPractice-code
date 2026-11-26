@@ -4,10 +4,11 @@ import json
 import unittest
 from collections import Counter
 from pathlib import Path
+from random import Random
 from tempfile import TemporaryDirectory
 from zipfile import ZipFile
 
-from .carrier_profile import build_profile, load_profile
+from .carrier_profile import CarrierProfile, build_profile, load_profile
 from .corpus import CLAIM_FAULTS, bulk_batches, generate, render_batch, verify
 
 
@@ -40,6 +41,8 @@ class CorpusTest(unittest.TestCase):
         claim_ids = set()
         line_counts = Counter()
         codes = set()
+        locations = set()
+        profile = load_profile()
         for filename, _, cases, file_fault in bulk_batches(837):
             self.assertEqual(len(cases), 100)
             self.assertIsNone(file_fault)
@@ -48,12 +51,20 @@ class CorpusTest(unittest.TestCase):
                 claim_ids.add(case.claim_id)
                 counts[case.member_id] += 1
                 line_counts[len(case.lines)] += 1
-                codes.update(line["cpt"] for line in case.lines)
+                procedures = [line["cpt"] for line in case.lines]
+                codes.update(procedures)
+                locations.add(case.pos)
+                self.assertIn((procedures[0], case.pos), profile.pairs)
+                if len(procedures) > 1:
+                    patterns = profile.patterns[procedures[0], case.pos][len(procedures)]
+                    self.assertIn(sorted(procedures), [list(pattern) for pattern, _ in patterns])
                 if case.fault:
                     rejects[case.member_id] += 1
                     reasons[case.fault] += 1
         self.assertEqual(len(claim_ids), 35_000)
-        self.assertEqual(set(line_counts), set(range(1, 14)))
+        self.assertIn(1, line_counts)
+        self.assertGreaterEqual(max(line_counts), 3)
+        self.assertTrue({"11", "22", "81"} <= locations)
         self.assertTrue({"99213", "36415", "85025"} <= codes)
         self.assertEqual(Counter(counts.values()), {100: 250, 1_000: 10})
         self.assertEqual(sum(rejects.values()), 10_500)
@@ -73,9 +84,9 @@ class CorpusTest(unittest.TestCase):
         self.assertIn("*11:B:1*", payload)
         self.assertIn("HI*ABK:E119~", payload)
         self.assertIn("SV1*HC:99213*", payload)
-        self.assertEqual(load_profile().reference["profile"], "cms-desynpuf-carrier-1")
+        self.assertEqual(load_profile().reference["profile"], "cms-carrier-combined-1")
 
-    def test_carrier_extraction_uses_priced_lines_and_excludes_identifiers(self):
+    def test_carrier_extraction_joins_priced_patterns_with_weighted_pos_counts(self):
         with TemporaryDirectory() as temporary:
             path = Path(temporary) / "carrier.zip"
             csv_data = io.StringIO()
@@ -91,11 +102,38 @@ class CorpusTest(unittest.TestCase):
                 ])
             with ZipFile(path, "w") as archive:
                 archive.writestr("carrier.csv", csv_data.getvalue())
-            profile = build_profile([path])
+            bsa_2010 = Path(temporary) / "2010.zip"
+            bsa_2008 = Path(temporary) / "2008.zip"
+            with ZipFile(bsa_2010, "w") as archive:
+                archive.writestr("carrier.csv", (
+                    "CAR_LINE_HCPCS_CD,CAR_LINE_PLACE_OF_SRVC_CD,CAR_LINE_CNT\n"
+                    "99213,11,40\n99213,21,80\n85025,11,60\n80053,11,20\n99213,1,50\n"
+                ))
+            with ZipFile(bsa_2008, "w") as archive:
+                archive.writestr("carrier.csv", (
+                    "CAR_LINE_ID,CAR_LINE_HCPCS_CD,CAR_LINE_PLACE_OF_SRVC_CD\n"
+                    "DO-NOT-COPY-2008,99213,11\n"
+                ))
+            profile = build_profile([path], [bsa_2010, bsa_2008])
         self.assertEqual(profile["priced_line_counts"], [(3, 10)])
         self.assertEqual(profile["office_lab_patterns"], [[["85025", "99213"], 10]])
         self.assertEqual(profile["allowed_charge_bands"], {"85025": [(1, 10)], "99213": [(8, 10)]})
+        self.assertEqual(profile["procedure_pos_counts"], [
+            ["85025", "11", 60], ["99213", "11", 41], ["99213", "21", 80],
+        ])
+        volumes = [(source["rows"], source["lines"]) for source in profile["frequency_archives"]]
+        self.assertEqual(volumes, [(1, 1), (5, 250)])
         self.assertNotIn("DO-NOT-COPY", json.dumps(profile))
+
+        sampler = CarrierProfile(profile, "fixture-digest")
+        rng = Random(837)
+        observed = Counter()
+        for _ in range(1_000):
+            pos, lines = sampler.service(rng, "20261120")
+            procedures = [line["cpt"] for line in lines]
+            observed[pos, tuple(sorted(procedures))] += 1
+        self.assertEqual(set(observed), {("11", ("85025", "99213")), ("21", ("99213",))})
+        self.assertGreater(observed["11", ("85025", "99213")], observed["21", ("99213",)])
 
     def test_verifier_detects_changed_fixture_and_generation_refuses_overwrite(self):
         with TemporaryDirectory() as temporary:

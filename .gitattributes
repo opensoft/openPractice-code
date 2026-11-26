@@ -1,0 +1,2 @@
+# Preserve the exact bytes used for the Carrier profile SHA-256.
+src/claimlab/fixtures/carrier-profile.json text eol=lf

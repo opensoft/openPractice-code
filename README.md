@@ -26,6 +26,13 @@ code in one repository is reviewed identically.
 
 Topic: `xf-project-openpractice`.
 
+## ClaimLab sandbox
+
+Upload a synthetic 837P with `ISA15=T` to see simulated TA1, 999, and
+277CA acknowledgments.
+
+[Live 837P uploader](https://claimlab.opensoft.dev/) | [Live API examples](https://claimlab.opensoft.dev/#api) | [ClaimLab documentation](src/claimlab/README.md)
+
 ## Colorado Medicare Part B test workflow
 
 Install `open_practice` on a disposable Frappe v15 site after setting its

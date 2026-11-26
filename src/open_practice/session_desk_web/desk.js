@@ -42,10 +42,12 @@ const newLocationFields = get("new-location-fields");
 const facilityDialog = get("facility-dialog");
 const facilityForm = get("facility-form");
 const facilityType = facilityForm.elements.facility_type;
+const hospitalSetting = facilityForm.elements.pos_code;
 const facilityNpi = facilityForm.elements.npi;
 const npiStatus = get("facility-npi-status");
 const applyRegistryDetails = get("apply-registry-details");
-const facilityTypeLabels = Object.fromEntries([...facilityType.options].map((option) => [option.value, option.text]));
+const facilityTypeLabels = {};
+let hospitalSettingLabels = {};
 const facilitySearch = get("facility-search");
 const facilityTypeFilter = get("facility-filter-type");
 const facilityStatusFilter = get("facility-filter-status");
@@ -70,8 +72,6 @@ let npiLookupTimer;
 let npiLookupController;
 let matchedFacilityFields = null;
 const npiAutofilled = new Map();
-
-facilityTypeFilter.append(...[...facilityType.options].filter((option) => option.value).map((option) => option.cloneNode(true)));
 
 for (const group of ["site", "address", "contract"]) {
   get(`facility-${group}-fields`).append(get(`${group}-fields-template`).content.cloneNode(true));
@@ -184,13 +184,16 @@ function renderSession(appointment) {
   const current = stageLabel(appointment.stage, appointment.mode);
   const identifiers = appointment.patient_details ? patientIdentifiers(appointment.patient_details) : "";
   const address = locationAddress(appointment.location_address);
-  const facilityTypeLabel = appointment.facility_type && facilityTypeLabels[appointment.facility_type];
+  const locationClassification = [
+    facilityTypeLabels[appointment.facility_type],
+    appointment.pos_code && `Location POS ${appointment.pos_code}`,
+  ].filter(Boolean).join(" · ");
   const rosterLabel = appointment.group_reference ? `Patients in this visit (${appointment.member_count})` : "Patient information";
   const keepRosterOpen = previousRoster?.open && Number(previousRoster.dataset.appointment) === appointment.id;
   session.innerHTML = `
     <h2>${escapeHTML(appointmentLabel(appointment))}</h2>
     <p class="session-description">${displaySlot(appointment.time)} · ${escapeHTML(appointment.facility_name)} · ${modes[appointment.mode]}</p>
-    ${facilityTypeLabel ? `<p class="session-description">${escapeHTML(facilityTypeLabel)}</p>` : ""}
+    ${locationClassification ? `<p class="session-description">${escapeHTML(locationClassification)}</p>` : ""}
     ${address ? `<p class="session-description">${escapeHTML(address)}</p>` : ""}
     ${appointment.contract_status ? `<p class="session-description">Facility pharmacy contract · ${contractLabels[appointment.contract_status]}</p>` : ""}
     ${appointment.living_arrangement ? `<p class="session-description">${livingLabels[appointment.living_arrangement]}</p>` : ""}
@@ -287,6 +290,19 @@ insuranceForm.addEventListener("submit", async (event) => {
     submit.disabled = false;
   }
 });
+
+async function loadFacilityTypes() {
+  const { types, hospital_settings } = await api("/api/facility-types");
+  for (const { value, label, pos_code } of types) {
+    facilityTypeLabels[value] = label;
+    facilityType.add(new Option(pos_code ? `${label} · POS ${pos_code}` : label, value));
+    facilityTypeFilter.add(new Option(label, value));
+  }
+  hospitalSettingLabels = hospital_settings;
+  for (const [code, label] of Object.entries(hospital_settings)) {
+    hospitalSetting.add(new Option(`${label} · POS ${code}`, code));
+  }
+}
 
 async function refresh() {
   [appointments, patients, facilities] = await Promise.all([
@@ -571,7 +587,8 @@ function renderFacilityList() {
   });
   facilityList.innerHTML = visible.map((facility) => {
     const subtitle = [
-      facilityTypeLabels[facility.facility_type] || "Unclassified", facility.city,
+      facilityTypeLabels[facility.facility_type] || "Unclassified",
+      facility.pos_code && `POS ${facility.pos_code}`, facility.city,
       facility.archived ? "Archived" : "",
     ].filter(Boolean).join(" · ");
     return `<li><button type="button" data-facility="${escapeHTML(facility.reference)}">
@@ -595,11 +612,13 @@ function showFacilityDetails(reference) {
   selectedFacilityReference = reference;
   const details = [
     ["Facility type", facilityTypeLabels[facility.facility_type] || "Unclassified"],
+    ["Location POS code", facility.pos_code],
     ["Status", facility.archived ? "Archived" : "Active"],
     ["Legal operating name", facility.legal_name],
     ["NPI", facility.npi],
     ["Address", locationAddress(facility)],
   ];
+  if (facility.facility_type === "hospital") details.splice(2, 0, ["Hospital setting", hospitalSettingLabels[facility.pos_code]]);
   if (facility.kind === "alf") details.push(["Pharmacy contract", contractLabels[facility.contract_status]]);
   get("facility-details").innerHTML = details.map(([label, value]) =>
     `<dt>${label}</dt><dd>${escapeHTML(value || "Not recorded")}</dd>`).join("");
@@ -614,6 +633,7 @@ function showFacilityEditor(facility = null) {
   facilityForm.reset();
   facilityForm.elements.reference.value = facility?.reference ?? "";
   facilityType.value = facility?.facility_type ?? "";
+  hospitalSetting.value = facility?.facility_type === "hospital" ? facility.pos_code ?? "" : "";
   facilityForm.elements.name.value = facility?.name ?? "";
   facilityForm.elements.contract_status.value = facility?.contract_status ?? "unknown";
   for (const key of siteDetails) {
@@ -622,13 +642,14 @@ function showFacilityEditor(facility = null) {
       facilityForm.elements[key].required = !facility || Boolean(facility.legal_name);
     }
   }
-  updateFacilityContract();
+  updateFacilityTypeFields();
   showError(get("facility-error"), "");
   showFacilityView("editor", facility ? "Edit facility" : "New facility");
   facilityNpi.focus();
 }
 
-function updateFacilityContract() {
+function updateFacilityTypeFields() {
+  toggleFields(get("hospital-setting-fields"), facilityType.value === "hospital");
   toggleFields(get("facility-contract-fields"), facilityType.value !== "" && facilityType.value !== "office");
 }
 
@@ -659,7 +680,7 @@ function fillFromRegistry(replace = false) {
     input.value = value;
     npiAutofilled.set(key, value);
   }
-  updateFacilityContract();
+  updateFacilityTypeFields();
   updateRegistryButton();
 }
 
@@ -693,7 +714,7 @@ facilityNpi.addEventListener("input", () => {
     if (input.value === value) input.value = "";
   }
   resetNpiLookup();
-  updateFacilityContract();
+  updateFacilityTypeFields();
   const npi = facilityNpi.value.trim();
   if (!/^[0-9]{10}$/.test(npi)) return;
   setNpiStatus("Searching the NPI Registry…");
@@ -729,7 +750,7 @@ get("facility-back").addEventListener("click", showFacilityList);
 get("edit-facility").addEventListener("click", () => {
   showFacilityEditor(facilities.find((facility) => facility.reference === selectedFacilityReference));
 });
-facilityType.addEventListener("change", updateFacilityContract);
+facilityType.addEventListener("change", updateFacilityTypeFields);
 facilityDialog.addEventListener("close", () => {
   resetNpiLookup();
   if (!facilityHandoff) return;
@@ -821,4 +842,4 @@ viewDay.addEventListener("change", () => {
   if (!viewDay.value) viewDay.value = `${today.year}-${today.month}-${today.day}`;
   render();
 });
-refresh().catch((error) => showError(get("desk-error"), error.message));
+loadFacilityTypes().then(refresh).catch((error) => showError(get("desk-error"), error.message));

@@ -26,6 +26,12 @@ def _text(record, field):
     return value.strip() if isinstance(value, str) else ""
 
 
+def _facility_type(taxonomy):
+    if re.fullmatch(r"3336[A-Z0-9]{5}X", taxonomy):
+        return "pharmacy"
+    return FACILITY_TAXONOMIES.get(taxonomy, "")
+
+
 def lookup_facility(npi):
     if not re.fullmatch(NPI_PATTERN, npi):
         raise ValueError("Enter a 10-digit NPI.")
@@ -57,11 +63,11 @@ def lookup_facility(npi):
         postal_code = _text(location, "postal_code")
         if location.get("country_code") == "US" and re.fullmatch(r"[0-9]{9}", postal_code):
             postal_code = f"{postal_code[:5]}-{postal_code[5:]}"
-        primary_taxonomy = next((item.get("code") for item in record.get("taxonomies", []) if item.get("primary")), None)
+        primary_taxonomy = next((item for item in record.get("taxonomies", []) if item.get("primary")), {})
         data = {
             "name": dba,
             "legal_name": legal_name,
-            "facility_type": FACILITY_TAXONOMIES.get(primary_taxonomy, ""),
+            "facility_type": _facility_type(_text(primary_taxonomy, "code")),
             "street_address": _text(location, "address_1"),
             "city": _text(location, "city"),
             "region": _text(location, "state"),

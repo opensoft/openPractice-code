@@ -25,7 +25,27 @@ INSURANCE_FIELDS = (
     ("group_number", "insurance group number", 80),
 )
 CONTRACT_STATUSES = ("unknown", "no_contract", "contracted")
-FACILITY_TYPES = ("office", "alf", "snf", "hospital", "other")
+# CMS Place of Service Code Set for Professional Claims.
+FACILITY_TYPES = {
+    "office": ("Office / clinic", "11"),
+    "alf": ("Assisted living facility (ALF)", "13"),
+    "snf": ("Skilled nursing facility (SNF)", "31"),
+    "hospital": ("Hospital", None),
+    "pharmacy": ("Pharmacy", "01"),
+    "retail_clinic": ("Walk-in Retail Health Clinic", "17"),
+    "urgent_care": ("Urgent Care Facility", "20"),
+    "asc": ("Ambulatory Surgical Center", "24"),
+    "fqhc": ("Federally Qualified Health Center", "50"),
+    "rhc": ("Rural Health Clinic", "72"),
+    "other": ("Other facility", "99"),
+}
+HOSPITAL_SETTINGS = {
+    "19": "Off-campus outpatient hospital",
+    "21": "Inpatient hospital",
+    "22": "On-campus outpatient hospital",
+    "23": "Hospital emergency room",
+}
+HOME_POS_CODE = "12"
 FACILITY_NAME_LIMIT = 255
 LIVING_ARRANGEMENTS = ("alone", "with_caregiver")
 ADDRESS_FIELDS = (
@@ -46,7 +66,7 @@ APPOINTMENT_SELECT = """
             SELECT COUNT(*) FROM appointment_members m WHERE m.appointment_id = a.id
         ) END AS member_count,
         COALESCE(f.name, 'Patient home') AS facility_name,
-        COALESCE(f.kind, 'home') AS location_kind, f.facility_type,
+        COALESCE(f.kind, 'home') AS location_kind, f.facility_type, f.hospital_pos_code,
         CASE WHEN f.kind = 'alf' THEN f.contract_status END AS contract_status, h.living_arrangement,
         COALESCE(d.street_address, h.street_address) AS street_address,
         COALESCE(d.address_line_2, h.address_line_2) AS address_line_2,
@@ -91,8 +111,25 @@ def _event(stage):
     return {"stage": stage, "at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
 
 
+def _facility_pos(facility_type, hospital_pos_code):
+    if facility_type == "hospital":
+        return hospital_pos_code
+    return FACILITY_TYPES.get(facility_type, (None, None))[1]
+
+
+def _facility(row):
+    result = dict(row)
+    result["pos_code"] = _facility_pos(result["facility_type"], result.pop("hospital_pos_code"))
+    return result
+
+
 def _appointment(row):
     result = dict(row)
+    hospital_pos_code = result.pop("hospital_pos_code")
+    result["pos_code"] = (
+        HOME_POS_CODE if result["location_kind"] == "home"
+        else _facility_pos(result["facility_type"], hospital_pos_code)
+    )
     patient = {key: result.pop(key) for key in PATIENT_FIELDS}
     result["patient_details"] = None if result["group_reference"] else patient
     result["location_address"] = {key: result.pop(key) for key, _, _ in ADDRESS_FIELDS}
@@ -195,6 +232,7 @@ class SessionDesk:
                     kind TEXT NOT NULL,
                     contract_status TEXT,
                     facility_type TEXT,
+                    hospital_pos_code TEXT,
                     archived INTEGER NOT NULL DEFAULT 0 CHECK (archived IN (0, 1))
                 )
             """)
@@ -209,6 +247,8 @@ class SessionDesk:
                 connection.execute("""
                     ALTER TABLE facilities ADD COLUMN archived INTEGER NOT NULL DEFAULT 0 CHECK (archived IN (0, 1))
                 """)
+            if "hospital_pos_code" not in facility_columns:
+                connection.execute("ALTER TABLE facilities ADD COLUMN hospital_pos_code TEXT")
             connection.execute("""
                 INSERT INTO facilities (reference, name, kind, facility_type)
                 VALUES ('clinic', 'Clinic', 'clinic', 'office'), ('alf', 'Assisted living facility', 'alf', 'alf')
@@ -348,7 +388,7 @@ class SessionDesk:
 
     def facilities(self):
         with closing(self.connect()) as connection:
-            return [dict(row) for row in connection.execute(SITE_SELECT + """
+            return [_facility(row) for row in connection.execute(SITE_SELECT + """
                 WHERE f.reference != 'alf'
                 ORDER BY f.kind = 'clinic' DESC, f.name COLLATE NOCASE
             """)]
@@ -371,8 +411,16 @@ class SessionDesk:
                 raise ValueError("Choose a registered facility.")
             facility_type = values.get("facility_type", existing["facility_type"] if existing else None)
             keep_unclassified = existing is not None and "facility_type" not in values and facility_type is None
-            if facility_type not in FACILITY_TYPES and not keep_unclassified:
+            if not keep_unclassified and (not isinstance(facility_type, str) or facility_type not in FACILITY_TYPES):
                 raise ValueError("Choose a facility type.")
+            hospital_pos_code = None
+            if facility_type == "hospital":
+                if "pos_code" not in values and existing and existing["facility_type"] == "hospital":
+                    hospital_pos_code = existing["hospital_pos_code"]
+                else:
+                    hospital_pos_code = values.get("pos_code")
+                    if not isinstance(hospital_pos_code, str) or hospital_pos_code not in HOSPITAL_SETTINGS:
+                        raise ValueError("Choose a hospital setting for the place of service.")
             kind = "clinic" if facility_type == "office" else "alf"
             name = _location_text(values, "name", "location name", FACILITY_NAME_LIMIT)
             old_status = existing["contract_status"] if existing else None
@@ -385,15 +433,18 @@ class SessionDesk:
                 if same_name["archived"]:
                     raise ValueError("An archived facility uses that name. Find it in Facilities to restore it.")
                 if (not reference and same_name["facility_type"] == facility_type and same_name["contract_status"] == status
+                        and same_name["hospital_pos_code"] == hospital_pos_code
                         and all(same_name[key] == value for key, value in details.items())):
-                    return dict(same_name)
+                    return _facility(same_name)
                 raise ValueError("That location name is already in use. Choose the saved location or use a different name.")
             reference = reference or f"{kind}-{uuid4().hex}"
             connection.execute("""
-                INSERT INTO facilities (reference, name, kind, contract_status, facility_type) VALUES (?, ?, ?, ?, ?)
+                INSERT INTO facilities (reference, name, kind, contract_status, facility_type, hospital_pos_code)
+                VALUES (?, ?, ?, ?, ?, ?)
                 ON CONFLICT (reference) DO UPDATE SET name = excluded.name, kind = excluded.kind,
-                    contract_status = excluded.contract_status, facility_type = excluded.facility_type
-            """, (reference, name, kind, status, facility_type))
+                    contract_status = excluded.contract_status, facility_type = excluded.facility_type,
+                    hospital_pos_code = excluded.hospital_pos_code
+            """, (reference, name, kind, status, facility_type, hospital_pos_code))
             if details:
                 connection.execute("""
                     INSERT INTO site_details (
@@ -403,7 +454,7 @@ class SessionDesk:
                         street_address = excluded.street_address, address_line_2 = excluded.address_line_2,
                         city = excluded.city, region = excluded.region, postal_code = excluded.postal_code
                 """, (reference, *details.values()))
-            return dict(connection.execute(SITE_SELECT + " WHERE f.reference = ?", (reference,)).fetchone())
+            return _facility(connection.execute(SITE_SELECT + " WHERE f.reference = ?", (reference,)).fetchone())
 
     def set_facility_archived(self, reference, archived):
         with closing(self.connect()) as connection, connection:
@@ -414,7 +465,7 @@ class SessionDesk:
             )
             if updated.rowcount == 0:
                 raise KeyError("Facility not found.")
-            return dict(connection.execute(SITE_SELECT + " WHERE f.reference = ?", (reference,)).fetchone())
+            return _facility(connection.execute(SITE_SELECT + " WHERE f.reference = ?", (reference,)).fetchone())
 
     def _save_home(self, connection, patient, reference, values):
         arrangement = values.get("living_arrangement")
@@ -563,6 +614,14 @@ def make_server(desk, port=17824):
                 self.respond(HTTPStatus.OK, desk.patients())
             elif self.path == "/api/facilities":
                 self.respond(HTTPStatus.OK, desk.facilities())
+            elif self.path == "/api/facility-types":
+                self.respond(HTTPStatus.OK, {
+                    "types": [
+                        {"value": value, "label": label, "pos_code": pos_code}
+                        for value, (label, pos_code) in FACILITY_TYPES.items()
+                    ],
+                    "hospital_settings": HOSPITAL_SETTINGS,
+                })
             elif npi:
                 try:
                     self.respond(HTTPStatus.OK, lookup_facility(npi[1]))

@@ -1,4 +1,5 @@
 import json
+from contextlib import closing
 from io import BytesIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -53,11 +54,12 @@ class SessionDeskTest(TestCase):
         })
 
     def test_each_location_can_host_either_visit_mode(self):
-        for location in ("clinic", "alf"):
+        for location, pos_code in (("clinic", "11"), ("alf", "13")):
             for mode in ("in-person", "telemedicine"):
                 with self.subTest(location=location, mode=mode):
                     booked = self.book(location, mode)
                     self.assertEqual((booked["location"], booked["mode"], booked["stage"]), (location, mode, "scheduled"))
+                    self.assertEqual(booked["pos_code"], pos_code)
                     self.assertEqual(self.book(location, mode)["id"], booked["id"])
         self.assertEqual(len(self.request("/api/appointments")), 4)
 
@@ -84,11 +86,21 @@ class SessionDeskTest(TestCase):
         self.assertEqual(self.request("/api/facilities", {**updated, "contract_status": "no_contract"})["contract_status"], "no_contract")
 
     def test_facility_types_are_saved_in_the_directory_and_available_when_booking(self):
-        for facility_type in ("office", "alf", "snf", "hospital", "other"):
+        pos_codes = {
+            "office": "11", "alf": "13", "snf": "31", "hospital": None, "pharmacy": "01",
+            "retail_clinic": "17", "urgent_care": "20", "asc": "24", "fqhc": "50", "rhc": "72", "other": "99",
+        }
+        catalog = self.request("/api/facility-types")
+        self.assertEqual({item["value"]: item["pos_code"] for item in catalog["types"]}, pos_codes)
+        self.assertEqual(set(catalog["hospital_settings"]), {"19", "21", "22", "23"})
+        for facility_type, pos_code in pos_codes.items():
             with self.subTest(facility_type=facility_type):
                 kind = "clinic" if facility_type == "office" else "alf"
                 details = {"name": f"Example {facility_type}", "facility_type": facility_type, **SITE}
+                if facility_type == "hospital":
+                    pos_code = details["pos_code"] = "22"
                 saved = self.request("/api/facilities", details)
+                self.assertEqual(saved["pos_code"], pos_code)
                 values = {
                     "patient": "demo-01", "location_kind": kind, "location": saved["reference"],
                     "mode": "telemedicine", "day": "2026-11-26", "time": "09:00",
@@ -96,11 +108,42 @@ class SessionDeskTest(TestCase):
                 booked = self.request("/api/appointments", values)
                 self.assertEqual(booked["location_kind"], kind)
                 self.assertEqual(booked["facility_type"], facility_type)
+                self.assertEqual(booked["pos_code"], pos_code)
                 self.assertEqual(booked["location_address"], ADDRESS)
                 self.assertEqual(self.request("/api/appointments", values), booked)
                 self.assertIn(saved, self.request("/api/facilities"))
                 self.assertEqual({key: saved[key] for key in details}, details)
                 self.assertEqual(saved["contract_status"], "unknown" if kind == "alf" else None)
+
+    def test_hospital_setting_is_required_for_new_hospitals_and_can_be_set_on_legacy_records(self):
+        with closing(SessionDesk(self.database).connect()) as connection, connection:
+            connection.execute("ALTER TABLE facilities DROP COLUMN hospital_pos_code")
+            connection.execute("""
+                INSERT INTO facilities (reference, name, kind, facility_type)
+                VALUES ('legacy-hospital', 'Legacy hospital', 'alf', 'hospital')
+            """)
+        SessionDesk(self.database)
+        legacy = self.request("/api/facilities")[-1]
+        self.assertIsNone(legacy["pos_code"])
+        booked = self.book(legacy["reference"])
+        self.assertIsNone(booked["pos_code"])
+
+        details = {"name": "Example Hospital", "facility_type": "hospital", **SITE}
+        for selection in ({}, {"pos_code": "99"}, {"pos_code": 19}):
+            with self.subTest(selection=selection), self.assertRaises(HTTPError) as rejected:
+                self.request("/api/facilities", {**details, **selection})
+            with rejected.exception as response:
+                self.assertEqual(response.code, 400)
+
+        for code in ("19", "21", "22", "23"):
+            updated = self.request("/api/facilities", {
+                "reference": legacy["reference"], "name": legacy["name"], "pos_code": code,
+            })
+            self.assertEqual(updated["pos_code"], code)
+            self.assertEqual(self.request("/api/appointments")[0]["pos_code"], code)
+
+        changed_type = self.request("/api/facilities", {**updated, "facility_type": "urgent_care", **SITE})
+        self.assertEqual(changed_type["pos_code"], "20")
 
     def test_facility_creation_requires_a_type_and_uses_the_directory(self):
         details = {"name": "Example Hospital", **SITE}
@@ -138,15 +181,24 @@ class SessionDeskTest(TestCase):
                 },
             ],
         }]}
-        with patch("open_practice.npi_registry.urlopen", return_value=BytesIO(json.dumps(payload).encode())) as registry:
-            result = self.request(f"/api/facilities/npi/{npi}")
-        request = urlsplit(registry.call_args.args[0].full_url)
-        self.assertEqual(request.netloc, "npiregistry.cms.hhs.gov")
-        self.assertEqual(parse_qs(request.query), {"version": ["2.1"], "number": [npi]})
-        self.assertEqual(result, {"match": "organization", "fields": {
-            **ADDRESS, "postal_code": "80202-0001", "facility_type": "snf",
-            "name": "Example Health", "legal_name": "Example Health LLC",
-        }})
+        for code, facility_type in (
+            ("314000000X", "snf"),
+            ("333600000X", "pharmacy"),
+            ("3336L0003X", "pharmacy"),
+            ("3336C0003X", "pharmacy"),
+        ):
+            payload["results"][0]["taxonomies"][0]["code"] = code
+            with self.subTest(code=code), patch(
+                "open_practice.npi_registry.urlopen", return_value=BytesIO(json.dumps(payload).encode()),
+            ) as registry:
+                result = self.request(f"/api/facilities/npi/{npi}")
+                request = urlsplit(registry.call_args.args[0].full_url)
+                self.assertEqual(request.netloc, "npiregistry.cms.hhs.gov")
+                self.assertEqual(parse_qs(request.query), {"version": ["2.1"], "number": [npi]})
+                self.assertEqual(result, {"match": "organization", "fields": {
+                    **ADDRESS, "postal_code": "80202-0001", "facility_type": facility_type,
+                    "name": "Example Health", "legal_name": "Example Health LLC",
+                }})
         self.assertEqual([row["reference"] for row in self.request("/api/facilities")], ["clinic"])
 
     def test_facility_npi_lookup_leaves_unmatched_and_individual_records_manual(self):
@@ -166,7 +218,7 @@ class SessionDeskTest(TestCase):
             self.assertIn("manually", json.load(response)["error"])
 
     def test_archived_facility_preserves_appointment_history_and_can_be_restored(self):
-        details = {"name": "Example Hospital", "facility_type": "hospital", **SITE}
+        details = {"name": "Example Hospital", "facility_type": "hospital", "pos_code": "22", **SITE}
         facility = self.request("/api/facilities", details)
         reference = facility["reference"]
         first = self.book(reference)
@@ -206,6 +258,7 @@ class SessionDeskTest(TestCase):
         booked = self.request("/api/appointments", values)
         self.assertEqual(self.request("/api/appointments", values), booked)
         self.assertEqual((booked["location_kind"], booked["living_arrangement"]), ("home", "with_caregiver"))
+        self.assertEqual(booked["pos_code"], "12")
         self.assertEqual(booked["location_address"], ADDRESS)
         self.assertEqual(self.request(f"/api/patients/{patient}/homes"), [{"reference": reference, **ADDRESS}])
         self.assertEqual(self.request("/api/patients/demo-01/homes"), [])
@@ -218,6 +271,7 @@ class SessionDeskTest(TestCase):
             self.assertEqual(response.code, 400)
         again = self.request("/api/appointments", {**saved, "time": "10:00", "mode": "telemedicine"})
         self.assertEqual(again["location"], reference)
+        self.assertEqual(again["pos_code"], "12")
         self.assertEqual(SessionDesk(self.database).appointments(), [booked, again])
 
     def test_booking_registers_patient_once_and_reuses_the_record(self):

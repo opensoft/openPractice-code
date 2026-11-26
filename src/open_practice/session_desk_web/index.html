@@ -198,13 +198,15 @@
       <label><span id="facility-type-label">Facility type</span>
         <select name="facility_type" aria-labelledby="facility-type-label" required>
           <option value="">Choose a facility type</option>
-          <option value="office">Office / clinic</option>
-          <option value="alf">Assisted living facility (ALF)</option>
-          <option value="snf">Skilled nursing facility (SNF)</option>
-          <option value="hospital">Hospital</option>
-          <option value="other">Other facility</option>
         </select>
       </label>
+      <fieldset id="hospital-setting-fields" class="field-group" disabled hidden>
+        <label>Hospital setting
+          <select name="pos_code" required>
+            <option value="">Choose a hospital setting</option>
+          </select>
+        </label>
+      </fieldset>
       <div id="facility-site-fields"></div>
       <div id="facility-address-fields"></div>
       <fieldset id="facility-contract-fields" class="field-group" disabled hidden></fieldset>

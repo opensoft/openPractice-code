@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ClaimLab Sandbox</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="frame header-content">
+      <a class="brand" href="/">ClaimLab <span>Sandbox</span></a>
+      <nav aria-label="Primary">
+        <a href="#upload">Upload</a>
+        <a href="#api">API</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="frame">
+    <div class="intro">
+      <h1>Test an 837P file</h1>
+      <p>Check a synthetic claim file and see simulated 999 and 277CA results.</p>
+    </div>
+
+    <div class="workspace" id="upload">
+      <section class="panel" aria-labelledby="upload-title">
+        <h2 id="upload-title">Upload</h2>
+        <form id="upload-form">
+          <label for="edi-file">Choose an 837P file</label>
+          <input type="file" id="edi-file" required aria-describedby="upload-note">
+          <p id="upload-note" class="hint">Synthetic data only. ASCII, up to 1 MiB. Set <code>ISA15=T</code>.</p>
+          <button type="submit" id="check-button">Run check</button>
+        </form>
+
+        <div class="examples">
+          <h3>Try a sample file</h3>
+          <div class="example-row">
+            <button type="button" data-example="accepted.837">Accepted claim</button>
+            <a href="/api/v1/examples/accepted.837" download aria-label="Download accepted claim sample">Download</a>
+          </div>
+          <div class="example-row">
+            <button type="button" data-example="claim-rejected.837">Rejected claim</button>
+            <a href="/api/v1/examples/claim-rejected.837" download aria-label="Download rejected claim sample">Download</a>
+          </div>
+          <div class="example-row">
+            <button type="button" data-example="file-rejected.837">Rejected file</button>
+            <a href="/api/v1/examples/file-rejected.837" download aria-label="Download rejected file sample">Download</a>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="results-title">
+        <h2 id="results-title">Results</h2>
+        <p id="result-summary" role="status">Choose a file or run a sample to get started.</p>
+        <div class="result-cards">
+          <article class="result-card">
+            <div><h3>999</h3><p>File structure</p></div>
+            <span class="status" id="file-status">Awaiting file</span>
+          </article>
+          <article class="result-card">
+            <div><h3>277CA</h3><p>Claim checks</p></div>
+            <span class="status" id="claim-status">Awaiting file</span>
+          </article>
+        </div>
+        <ul id="issues" class="issues" hidden></ul>
+      </section>
+    </div>
+
+    <section class="panel api" id="api" aria-labelledby="api-title">
+      <div class="api-header">
+        <h2 id="api-title">API</h2>
+        <button type="button" id="copy-button">Copy commands</button>
+      </div>
+      <p>Send raw X12 bytes. The response contains the same simulated results in JSON.</p>
+      <pre><code id="api-example">curl -o accepted.837 http://127.0.0.1:8765/api/v1/examples/accepted.837
+curl --data-binary @accepted.837 -H "Content-Type: application/edi-x12" http://127.0.0.1:8765/api/v1/validate</code></pre>
+    </section>
+  </main>
+</body>
+</html>

@@ -1,0 +1,37 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2018-05-01/subscriptionDeploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "resources": [
+    {
+      "type": "Microsoft.Resources/resourceGroups",
+      "apiVersion": "2022-09-01",
+      "name": "rg-opensoft-claimlab-sandbox",
+      "location": "westus2",
+      "tags": {"Application": "ClaimLab", "Owner": "Opensoft", "Purpose": "Public synthetic 837P sandbox"}
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2022-09-01",
+      "name": "claimlab-static-web-app",
+      "resourceGroup": "rg-opensoft-claimlab-sandbox",
+      "dependsOn": ["[subscriptionResourceId('Microsoft.Resources/resourceGroups', 'rg-opensoft-claimlab-sandbox')]"],
+      "properties": {
+        "mode": "Incremental",
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "resources": [
+            {
+              "type": "Microsoft.Web/staticSites",
+              "apiVersion": "2025-05-01",
+              "name": "opensoft-claimlab-sandbox",
+              "location": "westus2",
+              "sku": {"name": "Free", "tier": "Free"},
+              "properties": {"stagingEnvironmentPolicy": "Disabled"}
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

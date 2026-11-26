@@ -75,6 +75,8 @@ Reference examples:
 [Wisconsin ForwardHealth 999 guide](https://www.dhs.wisconsin.gov/publications/p0/p00268.pdf),
 and [Novitas 277CA training](https://www.novitas-solutions.com/webcenter/content/conn/UCM_Repository/uuid/dDocName:00004758).
 
+[Build and verify the Azure deployment](deploy/azure/README.md).
+
 ## Seeded test corpus
 
 Generate both suites into a new folder outside the checkout. The CLI writes

@@ -1,0 +1,6 @@
+{
+  "bindings": [
+    {"type": "httpTrigger", "direction": "in", "name": "req", "authLevel": "anonymous", "methods": ["post"], "route": "v1/validate"},
+    {"type": "http", "direction": "out", "name": "$return"}
+  ]
+}

@@ -1,0 +1,54 @@
+{
+  "doctype": "DocType",
+  "name": "OpenPractice Visit Charge",
+  "module": "Open Practice",
+  "engine": "InnoDB",
+  "field_order": [
+    "procedure_code",
+    "modifiers",
+    "charge",
+    "units",
+    "diagnosis_pointers"
+  ],
+  "fields": [
+    {
+      "fieldname": "procedure_code",
+      "label": "CPT or HCPCS",
+      "fieldtype": "Data",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "modifiers",
+      "label": "Modifiers",
+      "fieldtype": "Data",
+      "description": "Comma-separated, in the confirmed order."
+    },
+    {
+      "fieldname": "charge",
+      "label": "Charge (USD)",
+      "fieldtype": "Currency",
+      "precision": "2",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "units",
+      "label": "Units",
+      "fieldtype": "Int",
+      "reqd": 1,
+      "default": "1",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "diagnosis_pointers",
+      "label": "Diagnosis pointers",
+      "fieldtype": "Data",
+      "reqd": 1,
+      "default": "1",
+      "in_list_view": 1
+    }
+  ],
+  "istable": 1,
+  "permissions": []
+}

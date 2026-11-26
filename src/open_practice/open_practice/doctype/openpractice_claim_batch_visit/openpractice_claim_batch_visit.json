@@ -1,0 +1,21 @@
+{
+  "doctype": "DocType",
+  "name": "OpenPractice Claim Batch Visit",
+  "module": "Open Practice",
+  "engine": "InnoDB",
+  "field_order": [
+    "visit"
+  ],
+  "fields": [
+    {
+      "fieldname": "visit",
+      "label": "Finalized visit",
+      "fieldtype": "Link",
+      "options": "OpenPractice Visit",
+      "reqd": 1,
+      "in_list_view": 1
+    }
+  ],
+  "istable": 1,
+  "permissions": []
+}

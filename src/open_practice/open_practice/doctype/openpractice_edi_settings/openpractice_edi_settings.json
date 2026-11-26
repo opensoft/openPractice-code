@@ -1,0 +1,161 @@
+{
+  "doctype": "DocType",
+  "name": "OpenPractice EDI Settings",
+  "module": "Open Practice",
+  "engine": "InnoDB",
+  "field_order": [
+    "submitter_id",
+    "submitter_name",
+    "first_interchange_control",
+    "contact_name",
+    "contact_phone",
+    "provider_type",
+    "provider_name",
+    "provider_first_name",
+    "billing_npi",
+    "billing_taxonomy",
+    "tax_qualifier",
+    "tax_id",
+    "address",
+    "city",
+    "state",
+    "postal_code",
+    "rendering_first_name",
+    "rendering_last_name",
+    "rendering_npi",
+    "rendering_taxonomy"
+  ],
+  "fields": [
+    {
+      "fieldname": "submitter_id",
+      "label": "Enrolled submitter ID",
+      "fieldtype": "Data",
+      "reqd": 1
+    },
+    {
+      "fieldname": "submitter_name",
+      "label": "Submitter name",
+      "fieldtype": "Data",
+      "reqd": 1
+    },
+    {
+      "fieldname": "first_interchange_control",
+      "label": "First unused interchange control number",
+      "fieldtype": "Int",
+      "reqd": 1
+    },
+    {
+      "fieldname": "contact_name",
+      "label": "Billing contact",
+      "fieldtype": "Data",
+      "reqd": 1
+    },
+    {
+      "fieldname": "contact_phone",
+      "label": "Billing contact phone",
+      "fieldtype": "Data",
+      "reqd": 1
+    },
+    {
+      "fieldname": "provider_type",
+      "label": "Billing provider type",
+      "fieldtype": "Select",
+      "options": "\nIndividual\nOrganization",
+      "reqd": 1
+    },
+    {
+      "fieldname": "provider_name",
+      "label": "Billing provider name or surname",
+      "fieldtype": "Data",
+      "reqd": 1
+    },
+    {
+      "fieldname": "provider_first_name",
+      "label": "Billing provider first name",
+      "fieldtype": "Data",
+      "depends_on": "eval:doc.provider_type === 'Individual'"
+    },
+    {
+      "fieldname": "billing_npi",
+      "label": "Billing provider NPI",
+      "fieldtype": "Data",
+      "reqd": 1
+    },
+    {
+      "fieldname": "billing_taxonomy",
+      "label": "Billing provider taxonomy",
+      "fieldtype": "Data"
+    },
+    {
+      "fieldname": "tax_qualifier",
+      "label": "Tax ID qualifier",
+      "fieldtype": "Select",
+      "options": "EI\nSY",
+      "reqd": 1,
+      "default": "EI"
+    },
+    {
+      "fieldname": "tax_id",
+      "label": "Billing provider tax ID",
+      "fieldtype": "Data",
+      "reqd": 1
+    },
+    {
+      "fieldname": "address",
+      "label": "Billing provider address",
+      "fieldtype": "Data",
+      "reqd": 1
+    },
+    {
+      "fieldname": "city",
+      "label": "Billing city",
+      "fieldtype": "Data",
+      "reqd": 1
+    },
+    {
+      "fieldname": "state",
+      "label": "Billing state",
+      "fieldtype": "Data",
+      "reqd": 1,
+      "default": "CO"
+    },
+    {
+      "fieldname": "postal_code",
+      "label": "Nine-digit billing ZIP code",
+      "fieldtype": "Data",
+      "reqd": 1
+    },
+    {
+      "fieldname": "rendering_first_name",
+      "label": "Rendering provider first name",
+      "fieldtype": "Data",
+      "depends_on": "eval:doc.provider_type === 'Organization'"
+    },
+    {
+      "fieldname": "rendering_last_name",
+      "label": "Rendering provider surname",
+      "fieldtype": "Data",
+      "depends_on": "eval:doc.provider_type === 'Organization'"
+    },
+    {
+      "fieldname": "rendering_npi",
+      "label": "Rendering provider NPI",
+      "fieldtype": "Data",
+      "depends_on": "eval:doc.provider_type === 'Organization'"
+    },
+    {
+      "fieldname": "rendering_taxonomy",
+      "label": "Rendering provider taxonomy",
+      "fieldtype": "Data",
+      "depends_on": "eval:doc.provider_type === 'Organization'"
+    }
+  ],
+  "issingle": 1,
+  "permissions": [
+    {
+      "role": "System Manager",
+      "read": 1,
+      "write": 1
+    }
+  ]
+}

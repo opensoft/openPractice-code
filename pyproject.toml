@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "open_practice"
+version = "0.1.0"
+description = "openPractice Colorado Medicare Part B test workflow"
+requires-python = ">=3.10"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["open_practice*", "claimlab"]
+
+[tool.setuptools.package-data]
+open_practice = ["modules.txt", "fixtures/*.json", "open_practice/doctype/*/*.json", "open_practice/doctype/*/*.js"]

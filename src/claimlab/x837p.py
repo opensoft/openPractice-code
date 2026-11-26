@@ -80,6 +80,13 @@ def build_segments(data, ctrl=1, test=True, now=None):
             body.append(seg("NM1", "82", "1", renderer["last"], renderer["first"], "", "", "", "XX", renderer["npi"]))
             if renderer.get("taxonomy"):
                 body.append(seg("PRV", "PE", "PXC", renderer["taxonomy"]))
+        if facility := cl.get("service_facility"):
+            npi = facility.get("npi")
+            body += [
+                seg("NM1", "77", "2", facility["name"], "", "", "", "", "XX" if npi else "", npi),
+                seg("N3", facility["address"], facility.get("address_2")),
+                seg("N4", facility["city"], facility["state"], facility["zip"]),
+            ]
         for n, l in enumerate(cl["lines"], 1):
             mods = "".join(S + m for m in l.get("modifiers", []))
             body += [

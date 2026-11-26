@@ -87,6 +87,12 @@ route and rendering provider requirements confirmed for Meds Rx before any
 Novitas submission. Rehearsal files use demonstration enrollment values and
 synthetic subscribers. [CMS preventive vaccine billing guidance](https://www.cms.gov/regulations-and-guidance/guidance/manuals/downloads/clm104c18.pdf)
 
+For a clinic at an assisted living facility, enter the facility name and
+physical address in the billing case's **Service facility** section. Include
+city, state and ZIP+4, with a second address line as needed. Enter the facility's
+NPI if the test route calls for it. The 837P writes those values to Loop 2310C
+and keeps the Meds Rx billing address in Loop 2010AA. [Novitas JH 837P companion guide](https://www.novitas-solutions.com/webcenter/content/conn/UCM_Repository/uuid/dDocName%3A00198701)
+
 ### Synthetic subscribers for the portal test
 
 Ask the enrolled submitter to contact the [Novitas JH EDI Help Desk](https://www.novitas-solutions.com/webcenter/portal/MedicareJH/pagebyid?contentId=00004399)

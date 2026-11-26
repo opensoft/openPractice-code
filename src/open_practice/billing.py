@@ -35,6 +35,34 @@ def _address(values):
     }
 
 
+def _service_facility(case):
+    fields = ("name", "address", "address_2", "city", "state", "postal_code", "npi")
+    if not any(str(case.get(f"service_facility_{field}") or "").strip() for field in fields):
+        return None
+
+    address = _field(case, "service_facility_address", limit=55)
+    if re.match(r"(?:P\.?\s*O\.?|POST OFFICE)\s*BOX\b", address):
+        raise ValueError("Enter the service facility's physical street address.")
+    facility = {
+        "name": _field(case, "service_facility_name"),
+        "address": address,
+        "city": _field(case, "service_facility_city", limit=30),
+        "state": _field(case, "service_facility_state", r"[A-Z]{2}"),
+        "zip": _field(case, "service_facility_postal_code", r"[0-9]{5}-?[0-9]{4}").replace("-", ""),
+    }
+    if str(case.get("service_facility_address_2") or "").strip():
+        facility["address_2"] = _field(case, "service_facility_address_2", limit=55)
+    if str(case.get("service_facility_npi") or "").strip():
+        npi = _field(case, "service_facility_npi", r"[0-9]{10}")
+        digits = [int(digit) for digit in npi]
+        # The CMS check digit includes the 80840 prefix, which adds 24 to the Luhn total.
+        total = 24 + sum(digits[1::2]) + sum(2 * digit - (9 if digit > 4 else 0) for digit in digits[::2])
+        if total % 10:
+            raise ValueError("The service facility NPI has an invalid check digit.")
+        facility["npi"] = npi
+    return facility
+
+
 def _charge(line, service_date, diagnosis_count):
     try:
         charge = Decimal(str(line.get("charge")))
@@ -92,6 +120,9 @@ def case_to_claim(case, *, today, roster=None):
     elif pos not in ("", "11"):
         raise ValueError("Use place of service 11 for the mock office encounter.")
 
+    claim = {"id": _field(case, "name", r"[A-Z0-9-]{1,17}"), "pos": pos or "11", "diagnoses": diagnoses, "lines": lines}
+    if facility := _service_facility(case):
+        claim["service_facility"] = facility
     return {
         "patient": {
             "first": _field(subscriber, "patient_first_name", limit=35),
@@ -102,7 +133,7 @@ def case_to_claim(case, *, today, roster=None):
             **_address(subscriber),
         },
         "payer": {"name": "MEDICARE PART B", "id": PAYER_ID, "filing": "MB"},
-        "claim": {"id": _field(case, "name", r"[A-Z0-9-]{1,17}"), "pos": pos or "11", "diagnoses": diagnoses, "lines": lines},
+        "claim": claim,
     }
 
 

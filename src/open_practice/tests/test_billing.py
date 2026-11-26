@@ -37,6 +37,15 @@ SETTINGS = {
     "rendering_npi": "1111111111",
 }
 FLU_SETTINGS = {**SETTINGS, "provider_name": "MEDS RX INC"}
+SYNTHETIC_ALF = {
+    "service_facility_name": "EXAMPLE ASSISTED LIVING",
+    "service_facility_address": "100 DEMO ALF WAY",
+    "service_facility_address_2": "BUILDING B",
+    "service_facility_city": "DENVER",
+    "service_facility_state": "CO",
+    "service_facility_postal_code": "80224-0123",
+    "service_facility_npi": "1999999992",
+}
 
 
 def sample_case(number=1):
@@ -100,6 +109,38 @@ class BillingTest(TestCase):
                 self.assertIn(b"NM1*85*2*MEDS RX INC*", payload)
                 self.assertIn(b"*PI*04112~", payload)
                 self.assertEqual(segments[0][15], "T")
+                self.assertNotIn(b"NM1*77*", payload)
+
+    def test_flu_administration_exports_2310c_with_optional_facility_npi(self):
+        for npi in (SYNTHETIC_ALF["service_facility_npi"], ""):
+            with self.subTest(facility_npi_supplied=bool(npi)):
+                case = {**sample_flu_case("60"), **SYNTHETIC_ALF, "service_facility_npi": npi}
+                payload = build_test_batch(FLU_SETTINGS, [case], control_number=121, now=NOW)
+                segments = parse(payload.decode("ascii"))
+                rendering_index = next(i for i, row in enumerate(segments) if row[:2] == ["NM1", "82"])
+                facility_name = ["NM1", "77", "2", "EXAMPLE ASSISTED LIVING"]
+                if npi:
+                    facility_name += ["", "", "", "", "XX", npi]
+                self.assertEqual(segments[rendering_index + 1:rendering_index + 5], [
+                    facility_name,
+                    ["N3", "100 DEMO ALF WAY", "BUILDING B"],
+                    ["N4", "DENVER", "CO", "802240123"],
+                    ["LX", "1"],
+                ])
+                self.assertIn(b"N3*10 EXAMPLE ST~N4*DENVER*CO*802010001~REF*EI*", payload)
+                self.assertIn(b"N3*20 EXAMPLE AVE~N4*DENVER*CO*80201~DMG*", payload)
+
+    def test_service_facility_rejects_incomplete_or_invalid_values(self):
+        for change, error in [
+            ({"service_facility_name": ""}, "service facility name"),
+            ({"service_facility_address": "P.O. BOX 200"}, "physical street address"),
+            ({"service_facility_postal_code": "80224"}, "service facility postal code"),
+            ({"service_facility_npi": "123456789"}, "service facility npi"),
+            ({"service_facility_npi": "1999999993"}, "service facility NPI has an invalid check digit"),
+        ]:
+            with self.subTest(error=error), self.assertRaisesRegex(ValueError, error):
+                case = {**sample_flu_case("60"), **SYNTHETIC_ALF, **change}
+                build_test_batch(FLU_SETTINGS, [case], control_number=121, now=NOW)
 
     def test_flu_administration_rejects_missing_pos_and_other_service_lines(self):
         for pos in ("", "11"):

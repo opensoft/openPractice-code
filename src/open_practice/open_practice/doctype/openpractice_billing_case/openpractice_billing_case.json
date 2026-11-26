@@ -13,7 +13,15 @@
     "synthetic_roster_sha256",
     "coverage_verified",
     "charges",
-    "claim_batch"
+    "claim_batch",
+    "service_facility_section",
+    "service_facility_name",
+    "service_facility_address",
+    "service_facility_address_2",
+    "service_facility_city",
+    "service_facility_state",
+    "service_facility_postal_code",
+    "service_facility_npi"
   ],
   "fields": [
     {
@@ -87,6 +95,48 @@
       "fieldtype": "Data",
       "read_only": 1,
       "in_list_view": 1
+    },
+    {
+      "fieldname": "service_facility_section",
+      "label": "Service facility",
+      "fieldtype": "Section Break"
+    },
+    {
+      "fieldname": "service_facility_name",
+      "label": "Service facility name",
+      "fieldtype": "Data",
+      "description": "Enter the facility where the service was performed when it differs from the billing location."
+    },
+    {
+      "fieldname": "service_facility_address",
+      "label": "Service facility street address",
+      "fieldtype": "Data"
+    },
+    {
+      "fieldname": "service_facility_address_2",
+      "label": "Service facility address line 2",
+      "fieldtype": "Data"
+    },
+    {
+      "fieldname": "service_facility_city",
+      "label": "Service facility city",
+      "fieldtype": "Data"
+    },
+    {
+      "fieldname": "service_facility_state",
+      "label": "Service facility state",
+      "fieldtype": "Data"
+    },
+    {
+      "fieldname": "service_facility_postal_code",
+      "label": "Service facility ZIP+4",
+      "fieldtype": "Data"
+    },
+    {
+      "fieldname": "service_facility_npi",
+      "label": "Service facility NPI",
+      "fieldtype": "Data",
+      "description": "Enter the facility's own NPI if the test route calls for it."
     }
   ],
   "autoname": "OPC-.#########",

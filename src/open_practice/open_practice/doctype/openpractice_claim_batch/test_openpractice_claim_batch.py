@@ -13,7 +13,7 @@ from open_practice.open_practice.doctype.openpractice_claim_batch.openpractice_c
     download_837p,
 )
 from open_practice.site import load_site_roster
-from open_practice.tests.test_billing import FLU_SETTINGS, SYNTHETIC_ROSTER_CSV, sample_flu_case
+from open_practice.tests.test_billing import FLU_SETTINGS, SYNTHETIC_ALF, SYNTHETIC_ROSTER_CSV, sample_flu_case
 
 
 class TestOpenPracticeClaimBatch(FrappeTestCase):
@@ -51,7 +51,7 @@ class TestOpenPracticeClaimBatch(FrappeTestCase):
         ).insert()
         frappe.set_user(biller.name)
 
-        values = sample_flu_case("60")
+        values = {**sample_flu_case("60"), **SYNTHETIC_ALF}
         for field in ("name", "subscriber_ref", "chart_revision"):
             values.pop(field)
         case = frappe.get_doc(doctype="OpenPractice Billing Case", **values).insert()
@@ -77,7 +77,10 @@ class TestOpenPracticeClaimBatch(FrappeTestCase):
         self.assertEqual(batch.claim_count, 1)
         self.assertEqual(batch.billing_cases, [])
         self.assertIsNone(batch.meta.get_field("edi_payload"))
-        for protected in (case.name, case.subscriber_ref, "ROSTERTEST", "1EG4TE5MK73", "Z23", "HC:G0008"):
+        for protected in (
+            case.name, case.subscriber_ref, "ROSTERTEST", "1EG4TE5MK73", "Z23", "HC:G0008",
+            "EXAMPLE ASSISTED LIVING", "100 DEMO ALF WAY", "802240123", "1999999992",
+        ):
             self.assertNotIn(protected, batch.frozen_billing)
         self.assertEqual(json.loads(batch.frozen_billing)["synthetic_roster"], {
             "approval_reference": "LOCAL-E2E", "sha256": original_roster_digest,
@@ -97,6 +100,11 @@ class TestOpenPracticeClaimBatch(FrappeTestCase):
         self.assertIn(b"SV1*HC:G0008*25*UN*1***1~", payload)
         self.assertIn(b"NM1*85*2*MEDS RX INC*", payload)
         self.assertIn(b"NM1*IL*1*ROSTERTEST*EXAMPLE****MI*1EG4TE5MK73~", payload)
+        self.assertIn(
+            b"NM1*77*2*EXAMPLE ASSISTED LIVING*****XX*1999999992~"
+            b"N3*100 DEMO ALF WAY*BUILDING B~N4*DENVER*CO*802240123~LX*1~",
+            payload,
+        )
         self.assertIn(b"*PI*04112~", payload)
         self.assertIn(b"*1*T*:", payload)
 
@@ -115,10 +123,15 @@ class TestOpenPracticeClaimBatch(FrappeTestCase):
 
         roster_path.write_text(revised_roster_csv, encoding="utf-8")
         new_roster = load_site_roster()
-        new_case = {**case.as_dict(), "place_of_service": "01", "synthetic_roster_sha256": new_roster.sha256}
+        new_case = {
+            **case.as_dict(),
+            "service_facility_address": "200 REVISED DEMO WAY",
+            "service_facility_npi": "",
+            "synthetic_roster_sha256": new_roster.sha256,
+        }
         fresh = build_test_batch(FLU_SETTINGS, [new_case], control_number=500_001, now=now_datetime(), roster=new_roster)
         self.assertIn(b"NM1*IL*1*UPDATED*", fresh)
-        self.assertIn(b"***01:B:1*", fresh)
+        self.assertIn(b"NM1*77*2*EXAMPLE ASSISTED LIVING~N3*200 REVISED DEMO WAY*BUILDING B~", fresh)
         download_837p(batch.name)
         self.assertEqual(frappe.local.response["filecontent"], payload)
 

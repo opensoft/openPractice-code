@@ -1,9 +1,14 @@
+import csv
+import io
+import json
 import unittest
 from collections import Counter
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from zipfile import ZipFile
 
-from .corpus import CLAIM_FAULTS, bulk_batches, generate, verify
+from .carrier_profile import build_profile, load_profile
+from .corpus import CLAIM_FAULTS, bulk_batches, generate, render_batch, verify
 
 
 class CorpusTest(unittest.TestCase):
@@ -33,6 +38,8 @@ class CorpusTest(unittest.TestCase):
         rejects = Counter()
         reasons = Counter()
         claim_ids = set()
+        line_counts = Counter()
+        codes = set()
         for filename, _, cases, file_fault in bulk_batches(837):
             self.assertEqual(len(cases), 100)
             self.assertIsNone(file_fault)
@@ -40,10 +47,14 @@ class CorpusTest(unittest.TestCase):
                 self.assertNotIn(case.claim_id, claim_ids)
                 claim_ids.add(case.claim_id)
                 counts[case.member_id] += 1
+                line_counts[len(case.lines)] += 1
+                codes.update(line["cpt"] for line in case.lines)
                 if case.fault:
                     rejects[case.member_id] += 1
                     reasons[case.fault] += 1
         self.assertEqual(len(claim_ids), 35_000)
+        self.assertEqual(set(line_counts), set(range(1, 14)))
+        self.assertTrue({"99213", "36415", "85025"} <= codes)
         self.assertEqual(Counter(counts.values()), {100: 250, 1_000: 10})
         self.assertEqual(sum(rejects.values()), 10_500)
         self.assertEqual(reasons, {fault: 2_625 for fault in CLAIM_FAULTS})
@@ -54,6 +65,37 @@ class CorpusTest(unittest.TestCase):
         first = next(bulk_batches(837))
         self.assertEqual(first, next(bulk_batches(837)))
         self.assertNotEqual(first, next(bulk_batches(838)))
+
+    def test_bulk_renders_office_services_from_the_packaged_profile(self):
+        _, control, cases, fault = next(bulk_batches(837))
+        payload = render_batch(control, cases, fault).decode("ascii")
+        self.assertIn("NM1*85*2*CLAIMLAB DEMO CLINIC", payload)
+        self.assertIn("*11:B:1*", payload)
+        self.assertIn("HI*ABK:E119~", payload)
+        self.assertIn("SV1*HC:99213*", payload)
+        self.assertEqual(load_profile().reference["profile"], "cms-desynpuf-carrier-1")
+
+    def test_carrier_extraction_uses_priced_lines_and_excludes_identifiers(self):
+        with TemporaryDirectory() as temporary:
+            path = Path(temporary) / "carrier.zip"
+            csv_data = io.StringIO()
+            writer = csv.writer(csv_data)
+            fields = ["DESYNPUF_ID"]
+            for slot in range(1, 14):
+                fields.extend([f"HCPCS_CD_{slot}", f"LINE_ALOWD_CHRG_AMT_{slot}"])
+            writer.writerow(fields)
+            for _ in range(10):
+                writer.writerow([
+                    "DO-NOT-COPY", "99213", "44.00", "85025", "8.40", "J1234", "100.00",
+                    "80053", "0.00", "", "5.00", *(["", "0.00"] * 8),
+                ])
+            with ZipFile(path, "w") as archive:
+                archive.writestr("carrier.csv", csv_data.getvalue())
+            profile = build_profile([path])
+        self.assertEqual(profile["priced_line_counts"], [(3, 10)])
+        self.assertEqual(profile["office_lab_patterns"], [[["85025", "99213"], 10]])
+        self.assertEqual(profile["allowed_charge_bands"], {"85025": [(1, 10)], "99213": [(8, 10)]})
+        self.assertNotIn("DO-NOT-COPY", json.dumps(profile))
 
     def test_verifier_detects_changed_fixture_and_generation_refuses_overwrite(self):
         with TemporaryDirectory() as temporary:

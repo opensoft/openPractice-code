@@ -14,6 +14,7 @@ from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
 from . import x837p
+from .carrier_profile import load_profile
 from .sandbox import MAX_BYTES, simulate
 from .synthetic import TEST_SUBSCRIBERS, WIDE_MEMBER_COUNT, synthetic_claim, synthetic_interchange
 
@@ -21,7 +22,6 @@ from .synthetic import TEST_SUBSCRIBERS, WIDE_MEMBER_COUNT, synthetic_claim, syn
 DEFAULT_SEED = 837
 BATCH_SIZE = 100
 TRANSMISSION_TIME = datetime(2026, 11, 26, 12)
-PROCEDURES = ("G0008", "G0009", "G0010")
 ACK_KEYS = {"TA1": "interchange_ack", "999": "file_ack", "277CA": "claim_ack"}
 CLAIM_FAULTS = {
     "unknown-subscriber": "TEST_MEMBER_UNKNOWN",
@@ -45,10 +45,14 @@ class ClaimCase:
     claim_id: str
     lines: list
     fault: str | None = None
+    pos: str = "60"
+    diagnoses: tuple[str, ...] = ("Z23",)
 
 
 def bulk_batches(seed):
     rng = Random(seed)
+    service_rng = Random(f"{seed}:carrier")
+    profile = load_profile()
     members = list(TEST_SUBSCRIBERS)
     cohorts = (
         ("varied", members[:WIDE_MEMBER_COUNT], 100),
@@ -70,14 +74,11 @@ def bulk_batches(seed):
             cases = []
             for member, visit in plans[offset:offset + BATCH_SIZE]:
                 claim_number += 1
-                service_date = date(2026, 1, 1) + timedelta(days=rng.randrange(320))
-                lines = [
-                    {"cpt": procedure, "charge": Decimal(rng.randint(1_500, 9_500)) / 100,
-                     "date": service_date.strftime("%Y%m%d")}
-                    for procedure in rng.sample(PROCEDURES, rng.randint(1, len(PROCEDURES)))
-                ]
+                service_date = date(2026, 1, 1) + timedelta(days=service_rng.randrange(320))
+                lines = profile.lines(service_rng, service_date.strftime("%Y%m%d"))
                 fault = faults.pop() if (member, visit) in rejects else None
-                cases.append(ClaimCase(member, f"CLAB-B{claim_number:07d}", lines, fault))
+                cases.append(ClaimCase(member, f"CLAB-B{claim_number:07d}", lines, fault,
+                                       pos="11", diagnoses=("E119",)))
             filename = f"bulk/{cohort}-{offset // BATCH_SIZE + 1:04d}.837"
             yield filename, control, cases, None
 
@@ -105,6 +106,7 @@ def render_batch(control, cases, file_fault):
     for case in cases:
         lines = [] if case.fault == "missing-service" else case.lines
         claim = synthetic_claim(case.member_id, case.claim_id, lines)
+        claim["claim"].update(pos=case.pos, diagnoses=list(case.diagnoses))
         if case.fault == "unknown-subscriber":
             claim["patient"]["member_id"] = "SYNTH99999"
         elif case.fault == "wrong-birth-date":
@@ -114,6 +116,8 @@ def render_batch(control, cases, file_fault):
         claims.append(claim)
 
     data = synthetic_interchange(claims)
+    if any(claim["claim"]["pos"] == "11" for claim in claims):
+        data["billing_provider"]["name"] = "ClaimLab Demo Clinic"
     data["batch_ref"] = f"CLAB-{control:09d}"
     segments = x837p.build_segments(data, ctrl=control, now=TRANSMISSION_TIME)
     if unbalanced:
@@ -216,6 +220,8 @@ def generate(destination, *, seed=DEFAULT_SEED, suite="all"):
                 path.write_bytes(payload)
                 files.append(expected_batch(filename, control, cases, fault, payload))
         manifest = {"schema_version": 1, "seed": seed, "summaries": summarize(files), "files": files}
+        if suite in {"all", "bulk"}:
+            manifest["carrier_profile"] = load_profile().reference
         (output / "manifest.json").write_bytes((json.dumps(manifest, indent=2) + "\n").encode("utf-8"))
         output.rename(destination)
     return manifest

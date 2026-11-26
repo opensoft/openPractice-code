@@ -82,15 +82,16 @@ python -m src.claimlab.corpus verify ../claimlab-test-data --api http://127.0.0.
 The last command uses a running ClaimLab sandbox. Use `--suite regression`
 or `--suite bulk` on `generate` to build a single suite. The seed controls
 the bulk claim order, dates, codes, charges, and placement of failures.
+Given the same seed and Carrier profile, the bulk fixtures are reproducible.
 The regression fixtures have fixed contents.
 
-- **Bulk:** 35,000 claims in 350 files of 100 claims. The varied cohort has
+- **Bulk.** 35,000 claims in 350 files of 100 claims. The varied cohort has
   250 subscribers with 100 claims each. The repeated cohort has 10
   subscribers with 1,000 claims each. Exactly 30% of each subscriber's
   claims are rejected at the 277CA stage. The four equally represented
   failures are an unknown subscriber, a wrong date of birth, missing
   service lines, and an unbalanced total charge.
-- **Regression:** 11 files cover a passing control and 10 failure
+- **Regression.** 11 files cover a passing control and 10 failure
   scenarios across TA1, 999, and 277CA. Every 277CA failure sits beside a
   passing claim. The manifest counts claims stopped by TA1 or 999 as
   blocked.
@@ -101,8 +102,29 @@ synthetic subscriber ID before any mutation, named scenario, and expected
 outcome and issue codes. Verification checks the fixture bytes and
 compares the sandbox results to those expectations. The generator uses
 original fictional identities shared with the sandbox and works offline.
+For bulk suites the manifest also records the name, source, and SHA-256
+digest of the packaged Carrier profile.
 
-Run the small suite with:
+### CMS Carrier service-line patterns
+
+Bulk claims draw line counts from records with one to 13 positive allowed
+amounts paired with HCPCS codes in both Carrier archives of CMS DE-SynPUF
+Sample 1. The profile keeps common combinations of office and lab codes and
+uses shorter observed combinations plus other observed office and lab codes
+when longer combinations are scarce. Per-code $5 bands of historical allowed
+amounts shape the generated test charges. These charges are synthetic.
+The exporter assigns the office place of service, diagnosis, dates, and
+identifiers independently of the CMS records. The profile contains aggregate
+counts and source archive digests. See the [CMS Carrier sample downloads](https://www.cms.gov/data-research/statistics-trends-and-reports/medicare-claims-synthetic-public-use-files/cms-2008-2010-data-entrepreneurs-synthetic-public-use-file-de-synpuf/de10-sample-1).
+
+Download the two Carrier ZIPs outside the checkout. Rebuild the profile with
+the following command.
+
+```sh
+python -m src.claimlab.carrier_profile /path/to/DE1_0_2008_to_2010_Carrier_Claims_Sample_1A.zip /path/to/DE1_0_2008_to_2010_Carrier_Claims_Sample_1B.zip --output src/claimlab/fixtures/carrier-profile.json
+```
+
+Run the small suite with
 
 ```sh
 python -m unittest src.claimlab.test_corpus src.claimlab.test_sandbox

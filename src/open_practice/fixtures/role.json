@@ -4,5 +4,11 @@
     "name": "OpenPractice Test Biller",
     "role_name": "OpenPractice Test Biller",
     "desk_access": 1
+  },
+  {
+    "doctype": "Role",
+    "name": "OpenPractice Billing Evidence",
+    "role_name": "OpenPractice Billing Evidence",
+    "desk_access": 1
   }
 ]

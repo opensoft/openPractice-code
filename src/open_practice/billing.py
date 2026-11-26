@@ -96,6 +96,13 @@ def case_to_claim(case, *, today):
 
 
 def build_test_batch(settings, cases, *, control_number, now):
+    data = prepare_test_batch(settings, cases, control_number=control_number, now=now)
+    payload = "".join(x837p.build_segments(data, ctrl=control_number, test=True, now=now)).encode("ascii")
+    validate_test_batch(payload)
+    return payload
+
+
+def prepare_test_batch(settings, cases, *, control_number, now):
     """Export original office-service claims for one enrolled Colorado billing provider."""
     if type(control_number) is not int or not 1 <= control_number <= 999_999_999:
         raise ValueError("Interchange control number must be between 1 and 999999999.")
@@ -135,7 +142,7 @@ def build_test_batch(settings, cases, *, control_number, now):
         for row in claims:
             row["claim"]["rendering_provider"] = rendering
 
-    data = {
+    return {
         "submitter": {
             "id": _field(settings, "submitter_id", r"[A-Z0-9]{1,15}"),
             "name": _field(settings, "submitter_name"),
@@ -148,8 +155,9 @@ def build_test_batch(settings, cases, *, control_number, now):
         "request_interchange_ack": True,
         "claims": claims,
     }
-    text = x837p.build(data, ctrl=control_number, test=True, now=now).replace("\n", "")
-    errors = x837p.validate(text, novitas=True)
+
+
+def validate_test_batch(payload):
+    errors = x837p.validate(payload.decode("ascii"), novitas=True)
     if errors:
         raise ValueError("837P validation failed. " + " ".join(errors))
-    return text.encode("ascii")

@@ -1,0 +1,28 @@
+{
+  "doctype": "DocType",
+  "name": "OpenPractice Claim PHI Snapshot",
+  "module": "Open Practice",
+  "engine": "InnoDB",
+  "field_order": [
+    "submission",
+    "frozen_phi"
+  ],
+  "fields": [
+    {
+      "fieldname": "submission",
+      "label": "Submission",
+      "fieldtype": "Data",
+      "reqd": 1,
+      "unique": 1,
+      "read_only": 1
+    },
+    {
+      "fieldname": "frozen_phi",
+      "label": "Restricted claim elements",
+      "fieldtype": "Long Text",
+      "reqd": 1,
+      "read_only": 1
+    }
+  ],
+  "permissions": []
+}

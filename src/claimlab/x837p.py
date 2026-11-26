@@ -31,6 +31,10 @@ def sanitize(o):
     return clean(o) if isinstance(o, str) else o
 
 def build(data, ctrl=1, test=True, now=None):
+    return "\n".join(build_segments(data, ctrl=ctrl, test=test, now=now)) + "\n"
+
+
+def build_segments(data, ctrl=1, test=True, now=None):
     data = sanitize(data)
     now = now or datetime.now()
     d8, t4, d6 = now.strftime("%Y%m%d"), now.strftime("%H%M"), now.strftime("%y%m%d")
@@ -85,8 +89,8 @@ def build(data, ctrl=1, test=True, now=None):
                 seg("DTP", "472", "D8", l["date"]),
             ]
     se = seg("SE", len(body) + 1, "0001")
-    return "\n".join([isa, seg("GS", "HC", sub["id"], rcv["id"], d8, t4, ctrl, "X", "005010X222A1")]
-                     + body + [se, seg("GE", 1, ctrl), seg("IEA", 1, f"{ctrl:09d}")]) + "\n"
+    return ([isa, seg("GS", "HC", sub["id"], rcv["id"], d8, t4, ctrl, "X", "005010X222A1")]
+            + body + [se, seg("GE", 1, ctrl), seg("IEA", 1, f"{ctrl:09d}")])
 
 def parse(text):
     return [s.split(E) for s in text.replace("\r", "").replace("\n", "").split(T) if s]

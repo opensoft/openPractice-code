@@ -5,10 +5,12 @@ frappe.ui.form.on("OpenPractice Claim Batch", {
         }));
     },
     refresh(frm) {
-        if (frm.doc.docstatus === 1) {
+        const canReconstruct = frappe.session.user === "Administrator" ||
+            frappe.user.has_role("OpenPractice Billing Evidence");
+        if (frm.doc.docstatus === 1 && frm.doc.phi_snapshot_ref && canReconstruct) {
             frm.add_custom_button(__("Download test 837P"), () => {
                 const route = "open_practice.open_practice.doctype.openpractice_claim_batch.openpractice_claim_batch";
-                window.location.assign(`/api/method/${route}.download_837p?name=${encodeURIComponent(frm.doc.name)}`);
+                open_url_post(`/api/method/${route}.download_837p`, {name: frm.doc.name});
             });
         }
     }

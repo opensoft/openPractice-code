@@ -1,0 +1,44 @@
+{
+  "doctype": "DocType",
+  "name": "OpenPractice Reconstruction Event",
+  "module": "Open Practice",
+  "engine": "InnoDB",
+  "field_order": [
+    "submission",
+    "performed_by",
+    "file_sha256"
+  ],
+  "fields": [
+    {
+      "fieldname": "submission",
+      "label": "Submission",
+      "fieldtype": "Link",
+      "options": "OpenPractice Claim Batch",
+      "reqd": 1,
+      "read_only": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "performed_by",
+      "label": "Reconstructed by",
+      "fieldtype": "Link",
+      "options": "User",
+      "reqd": 1,
+      "read_only": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "file_sha256",
+      "label": "Reconstructed file SHA-256",
+      "fieldtype": "Data",
+      "reqd": 1,
+      "read_only": 1
+    }
+  ],
+  "permissions": [
+    {
+      "role": "OpenPractice Billing Evidence",
+      "read": 1
+    }
+  ]
+}

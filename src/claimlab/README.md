@@ -3,7 +3,13 @@
 ClaimLab builds, compares, and validates synthetic 837P files. The sandbox
 adds a browser uploader and an HTTP API for the same checks.
 
-## Run the sandbox
+## Live sandbox
+
+Use the [live 837P uploader](https://claimlab.opensoft.dev/) or follow the
+[live HTTP API examples](https://claimlab.opensoft.dev/#api). The public
+sandbox uses synthetic files with `ISA15=T`.
+
+## Run the sandbox locally
 
 From the repository root with Python 3.10 or newer:
 
@@ -20,10 +26,11 @@ memory. The service binds to loopback and does not save or forward files.
 ## HTTP API
 
 ```sh
-curl -o accepted.837 http://127.0.0.1:8765/api/v1/examples/accepted.837
-curl --data-binary @accepted.837 -H "Content-Type: application/edi-x12" http://127.0.0.1:8765/api/v1/validate
+curl -o accepted.837 https://claimlab.opensoft.dev/api/v1/examples/accepted.837
+curl --data-binary @accepted.837 -H "Content-Type: application/edi-x12" https://claimlab.opensoft.dev/api/v1/validate
 ```
 
+For local testing, use `http://127.0.0.1:8765` as the base URL.
 The API accepts the original ASCII bytes (up to 1 MiB). It returns HTTP
 200 for completed simulation runs, including rejected files or claims.
 Other status codes describe request errors such as an empty upload

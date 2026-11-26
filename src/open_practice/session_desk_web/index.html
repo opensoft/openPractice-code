@@ -11,7 +11,7 @@
   <header class="site-header">
     <div class="shell header-inner">
       <a class="wordmark" href="/">open<span>Practice</span></a>
-      <span class="environment">Synthetic bookings only</span>
+      <span class="environment">Synthetic patients only</span>
     </div>
   </header>
 
@@ -21,7 +21,10 @@
         <h1>Session desk</h1>
         <p id="schedule-date"></p>
       </div>
-      <button type="button" class="primary" id="new-appointment">＋ New appointment</button>
+      <div class="heading-actions">
+        <button type="button" id="manage-facilities" disabled>Facilities</button>
+        <button type="button" class="primary" id="new-appointment" disabled>＋ New appointment</button>
+      </div>
     </div>
     <p id="desk-error" class="error" role="alert" hidden></p>
 
@@ -42,20 +45,26 @@
   <dialog id="booking-dialog" aria-labelledby="booking-title">
     <form id="booking-form">
       <h2 id="booking-title">New appointment</h2>
-      <label>Patient reference
-        <select name="patient" required autofocus>
-          <option value="demo-01">Demo patient 01</option>
-          <option value="demo-02">Demo patient 02</option>
-          <option value="demo-03">Demo patient 03</option>
-          <option value="demo-04">Demo patient 04</option>
+      <label><span id="booking-patient-label">Patient</span>
+        <select name="patient" aria-labelledby="booking-patient-label" required autofocus>
+          <option value="">Choose a patient</option>
+          <option value="new">Add new patient</option>
         </select>
       </label>
-      <div class="form-row">
-        <label>Location
-          <select name="location" required>
-            <option value="clinic">Clinic</option>
-            <option value="alf">Assisted living facility</option>
-          </select>
+      <fieldset id="new-patient-fields" class="patient-fields" disabled hidden>
+        <legend>New synthetic patient</legend>
+        <div class="form-row">
+          <label>First name <input name="first_name" type="text" maxlength="80" autocomplete="off" required></label>
+          <label>Last name <input name="last_name" type="text" maxlength="80" autocomplete="off" required></label>
+        </div>
+        <div class="form-row">
+          <label>Date of birth (optional) <input name="date_of_birth" type="date"></label>
+          <label>Chart reference (optional) <input name="chart_reference" type="text" maxlength="80" autocomplete="off"></label>
+        </div>
+      </fieldset>
+      <div class="form-row visit-options">
+        <label><span id="appointment-location-label">Location</span>
+          <select name="location" aria-labelledby="appointment-location-label" required></select>
         </label>
         <label>Visit mode
           <select name="mode" required>
@@ -72,6 +81,27 @@
       <div class="form-actions">
         <button type="button" id="cancel-booking">Cancel</button>
         <button type="submit" class="primary">Book appointment</button>
+      </div>
+    </form>
+  </dialog>
+  <dialog id="facility-dialog" aria-labelledby="facility-title">
+    <form id="facility-form">
+      <h2 id="facility-title">Assisted living facilities</h2>
+      <label><span id="facility-choice-label">Facility</span>
+        <select name="reference" aria-labelledby="facility-choice-label" autofocus></select>
+      </label>
+      <label>Facility name <input name="name" type="text" maxlength="120" required></label>
+      <label><span id="contract-status-label">Pharmacy contract with this ALF</span>
+        <select name="contract_status" aria-labelledby="contract-status-label">
+          <option value="unknown">Unknown</option>
+          <option value="no_contract">No contract</option>
+          <option value="contracted">Contracted</option>
+        </select>
+      </label>
+      <p id="facility-error" class="error" role="alert" hidden></p>
+      <div class="form-actions">
+        <button type="button" id="cancel-facility">Cancel</button>
+        <button type="submit" class="primary">Save facility</button>
       </div>
     </form>
   </dialog>

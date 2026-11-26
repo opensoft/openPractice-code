@@ -41,6 +41,66 @@ class SessionDeskTest(TestCase):
                     self.assertEqual(self.book(location, mode)["id"], booked["id"])
         self.assertEqual(len(self.request("/api/appointments")), 4)
 
+    def test_named_alf_can_be_booked_and_its_contract_status_updated(self):
+        legacy = self.book("alf")
+        name = "Example Assisted Living"
+        facility = self.request("/api/facilities", {"name": name})
+        self.assertEqual(facility["contract_status"], "unknown")
+        self.assertEqual(self.request("/api/facilities", {"name": name}), facility)
+
+        first = self.book(facility["reference"], "in-person")
+        second = self.book(facility["reference"], "telemedicine")
+        updated = self.request("/api/facilities", {**facility, "contract_status": "contracted"})
+        self.assertEqual(self.request("/api/facilities")[-1], updated)
+        self.assertEqual(updated["reference"], facility["reference"])
+
+        saved = {row["id"]: row for row in SessionDesk(self.database).appointments()}
+        self.assertEqual(saved[legacy["id"]], legacy)
+        for booked in (first, second):
+            self.assertEqual(saved[booked["id"]], {**booked, "facility_name": name, "contract_status": "contracted"})
+        self.assertEqual(self.request("/api/facilities", {**updated, "contract_status": "no_contract"})["contract_status"], "no_contract")
+
+    def test_booking_registers_patient_once_and_reuses_the_record(self):
+        patient = "patient-" + "a" * 32
+        details = {"first_name": "Practice", "last_name": "Example", "date_of_birth": "1980-04-03", "chart_reference": "OC-TEST-01"}
+        values = {
+            "patient": patient, "new_patient": details, "location": "alf", "mode": "telemedicine",
+            "day": "2026-11-26", "time": "09:00",
+        }
+        booked = self.request("/api/appointments", values)
+        self.assertEqual(self.request("/api/appointments", values)["id"], booked["id"])
+        self.assertEqual(booked["patient_details"], details)
+        self.assertEqual([row for row in self.request("/api/patients") if row["reference"] == patient], [
+            {"reference": patient, **details},
+        ])
+
+        repeat = self.request("/api/appointments", {
+            "patient": patient, "location": "clinic", "mode": "in-person", "day": "2026-11-27", "time": "11:15",
+        })
+        self.assertNotEqual(repeat["id"], booked["id"])
+        self.assertEqual(repeat["patient_details"], details)
+        self.assertEqual(len(SessionDesk(self.database).appointments()), 2)
+
+    def test_rejected_bookings_leave_patient_directory_unchanged(self):
+        values = {
+            "patient": "patient-" + "a" * 32, "location": "clinic", "mode": "in-person",
+            "day": "2026-11-26", "time": "09:00",
+        }
+        before = self.request("/api/patients")
+        for wrong in (
+            {**values, "new_patient": {"first_name": "Practice"}},
+            {**values, "new_patient": {"first_name": "Practice", "last_name": "Example", "date_of_birth": "2026-02-30"}},
+            {**values, "new_patient": {"first_name": "Practice", "last_name": "Example"}, "time": "25:00"},
+            {**values, "new_patient": {"first_name": "Practice", "last_name": "Example"}, "location": "unregistered"},
+        ):
+            with self.subTest(wrong=wrong), self.assertRaises(HTTPError) as rejected:
+                self.request("/api/appointments", wrong)
+            self.assertEqual(rejected.exception.code, 400)
+            with rejected.exception:
+                rejected.exception.read()
+        self.assertEqual(self.request("/api/patients"), before)
+        self.assertEqual(self.request("/api/appointments"), [])
+
     def test_session_end_allows_admin_handoff_and_chart_confirmation_enables_billing(self):
         booked = self.book("alf", "telemedicine")
         path = f"/api/appointments/{booked['id']}/advance"

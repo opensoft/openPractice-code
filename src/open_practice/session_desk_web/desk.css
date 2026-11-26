@@ -30,6 +30,7 @@ input, select { background: #fff; color: inherit; padding: 0.55rem 0.65rem; }
 .heading { display: flex; justify-content: space-between; align-items: end; gap: 1rem; margin-block: 3rem 1.65rem; }
 h1 { font-size: clamp(1.9rem, 4vw, 2.85rem); letter-spacing: -0.055em; line-height: 1.12; }
 .heading p { margin-top: .4rem; color: var(--muted); }
+.heading-actions { display: flex; flex-wrap: wrap; gap: .55rem; }
 .workspace { display: grid; grid-template-columns: minmax(280px, .9fr) minmax(0, 1.4fr); align-items: start; gap: 1rem; }
 .panel { background: #fff; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
 .panel-heading { display: flex; justify-content: space-between; align-items: center; gap: .6rem; padding: 1.15rem; border-bottom: 1px solid var(--line); }
@@ -48,6 +49,8 @@ h1 { font-size: clamp(1.9rem, 4vw, 2.85rem); letter-spacing: -0.055em; line-heig
 .session h2 { font-size: 1.5rem; letter-spacing: -.035em; }
 .session p { line-height: 1.45; }
 .session-description { color: var(--muted); margin-top: .3rem; font-size: .88rem; }
+.patient-details { color: var(--muted); margin-top: .5rem; font-size: .82rem; overflow-wrap: anywhere; }
+.appointment strong, .appointment small, .session h2, .session-description { overflow-wrap: anywhere; }
 .session-action { margin-block: 1.2rem; padding: 1rem; border-radius: 10px; background: #edf7f2; border: 1px solid #d8eae2; }
 .session-action h3 { font-size: 1rem; }
 .session-action p { color: #365652; margin-top: .35rem; font-size: .89rem; }
@@ -68,6 +71,8 @@ dialog::backdrop { background: #16312c76; }
 dialog h2 { font-size: 1.4rem; letter-spacing: -.035em; margin-bottom: 1.1rem; }
 dialog label { display: grid; gap: .3rem; font-size: .87rem; font-weight: 650; margin-bottom: .85rem; }
 dialog select, dialog input { width: 100%; min-width: 0; }
+.patient-fields { margin: 0 0 .9rem; padding: .7rem .8rem 0; min-width: 0; border: 1px solid var(--line); border-radius: 8px; background: #f7faf9; }
+.patient-fields legend { font-size: .85rem; font-weight: 700; padding: 0 .25rem; }
 .form-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .8rem; }
 .form-actions { display: flex; justify-content: flex-end; gap: .55rem; padding-top: .35rem; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
@@ -79,6 +84,7 @@ dialog select, dialog input { width: 100%; min-width: 0; }
 }
 @media (max-width: 420px) {
   .heading { align-items: start; flex-direction: column; }
+  .visit-options { grid-template-columns: 1fr; }
   .session { padding: 1rem; }
   .steps time { font-size: .7rem; }
 }

@@ -5,7 +5,7 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 
 from claimlab import x837p
-from open_practice.mock_openchart import read_mock_billing_facts
+from open_practice.mock_openchart import FLU_ENCOUNTER_PREFIX, read_mock_billing_facts
 from open_practice.test_subscriber_roster import get_test_subscriber
 
 
@@ -67,7 +67,8 @@ def _charge(line, service_date, diagnosis_count):
 def case_to_claim(case, *, today, roster=None):
     if not case.get("coverage_verified"):
         raise ValueError("Verify primary Medicare Part B coverage for the date of service.")
-    facts = read_mock_billing_facts(case.get("chart_encounter_ref"))
+    encounter_ref = case.get("chart_encounter_ref")
+    facts = read_mock_billing_facts(encounter_ref)
     if (case.get("subscriber_ref"), case.get("chart_revision")) != (facts.subscriber_ref, facts.revision):
         raise ValueError("The charting handoff changed. Review the latest facts before release.")
     subscriber = roster.get_subscriber(facts.subscriber_ref) if roster else get_test_subscriber(facts.subscriber_ref)
@@ -81,6 +82,16 @@ def case_to_claim(case, *, today, roster=None):
         raise ValueError("At least one service line is required.")
     if sum(line["charge"] for line in lines) > Decimal("99999.90"):
         raise ValueError("Total claim charges exceed Medicare's limit.")
+
+    pos = case.get("place_of_service") or ""
+    if encounter_ref.startswith(FLU_ENCOUNTER_PREFIX):
+        if pos not in ("01", "60"):
+            raise ValueError("Select place of service 01 or 60 for the flu administration test.")
+        if diagnoses != ["Z23"] or [(line["cpt"], line["units"]) for line in lines] != [("G0008", "1")]:
+            raise ValueError("The flu administration test needs a single G0008 line with one unit linked to the chart's Z23.")
+    elif pos not in ("", "11"):
+        raise ValueError("Use place of service 11 for the mock office encounter.")
+
     return {
         "patient": {
             "first": _field(subscriber, "patient_first_name", limit=35),
@@ -91,7 +102,7 @@ def case_to_claim(case, *, today, roster=None):
             **_address(subscriber),
         },
         "payer": {"name": "MEDICARE PART B", "id": PAYER_ID, "filing": "MB"},
-        "claim": {"id": _field(case, "name", r"[A-Z0-9-]{1,17}"), "pos": "11", "diagnoses": diagnoses, "lines": lines},
+        "claim": {"id": _field(case, "name", r"[A-Z0-9-]{1,17}"), "pos": pos or "11", "diagnoses": diagnoses, "lines": lines},
     }
 
 
@@ -103,7 +114,7 @@ def build_test_batch(settings, cases, *, control_number, now, roster=None):
 
 
 def prepare_test_batch(settings, cases, *, control_number, now, roster=None):
-    """Export original office-service claims for one enrolled Colorado billing provider."""
+    """Export original test claims for one Colorado billing provider."""
     if type(control_number) is not int or not 1 <= control_number <= 999_999_999:
         raise ValueError("Interchange control number must be between 1 and 999999999.")
     if not cases:

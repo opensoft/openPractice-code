@@ -73,6 +73,20 @@ service date, confirmed diagnosis count, and a revision digest. The release
 keeps patient-linked identifiers, dates and codes in the restricted snapshot.
 The frozen format preserves element order, separators and encoding so exporter
 changes affect future releases while the existing file stays reproducible.
+
+### Meds Rx flu administration rehearsal
+
+Use `OC-MOCK-FLU-000001` through `OC-MOCK-FLU-000025` for synthetic flu-shot
+visits. The mock chart supplies a finalized `Z23` diagnosis. Add one `G0008`
+administration line with one unit and diagnosis pointer `1`. Use a demo charge
+for local testing. This scenario assumes another entity supplied the vaccine.
+
+Select `01` for the pharmacy POS rehearsal or `60` for the mass immunization
+POS rehearsal. The selected code is written to `CLM05-1`. Use the POS, billing
+route and rendering provider requirements confirmed for Meds Rx before any
+Novitas submission. Rehearsal files use demonstration enrollment values and
+synthetic subscribers. [CMS preventive vaccine billing guidance](https://www.cms.gov/regulations-and-guidance/guidance/manuals/downloads/clm104c18.pdf)
+
 ### Synthetic subscribers for the portal test
 
 Ask the enrolled submitter to contact the [Novitas JH EDI Help Desk](https://www.novitas-solutions.com/webcenter/portal/MedicareJH/pagebyid?contentId=00004399)

@@ -7,13 +7,15 @@ from open_practice.charting import CONTRACT, ICD_10_CM, read_billing_facts
 
 
 ISSUER = "openchart-test"
+FLU_ENCOUNTER_PREFIX = "OC-MOCK-FLU-"
 
 
 def read_mock_response(encounter_ref):
-    match = re.fullmatch(r"OC-MOCK-([0-9]{6})", encounter_ref or "")
+    match = re.fullmatch(r"OC-MOCK-(?:FLU-)?([0-9]{6})", encounter_ref or "")
     if not match or not 1 <= int(match.group(1)) <= 25:
-        raise ValueError("Choose a mock openChart encounter from OC-MOCK-000001 through OC-MOCK-000025.")
+        raise ValueError("Choose a mock openChart encounter with an OC-MOCK or OC-MOCK-FLU reference numbered 000001 through 000025.")
     number = match.group(1)
+    diagnoses = ("Z23",) if encounter_ref.startswith(FLU_ENCOUNTER_PREFIX) else ("E11.9", "I10")
     return {
         "contract": CONTRACT,
         "contract_version": "1.0",
@@ -48,7 +50,7 @@ def read_mock_response(encounter_ref):
                     "rank": rank,
                     "encounter_ref": encounter_ref,
                 }
-                for rank, code in enumerate(("E11.9", "I10"), start=1)
+                for rank, code in enumerate(diagnoses, start=1)
             ],
         },
     }

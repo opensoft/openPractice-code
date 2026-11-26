@@ -36,6 +36,7 @@ SETTINGS = {
     "rendering_last_name": "CLINICIAN",
     "rendering_npi": "1111111111",
 }
+FLU_SETTINGS = {**SETTINGS, "provider_name": "MEDS RX INC"}
 
 
 def sample_case(number=1):
@@ -51,6 +52,20 @@ def sample_case(number=1):
             {"procedure_code": "99213", "charge": "149.90", "units": 1, "diagnosis_pointers": "1,2"},
             {"procedure_code": "G0008", "charge": "0.10", "units": 1, "diagnosis_pointers": "2"},
         ],
+    }
+
+
+def sample_flu_case(place_of_service):
+    encounter_ref = "OC-MOCK-FLU-000001"
+    facts = read_mock_billing_facts(encounter_ref)
+    return {
+        "name": "OPC-000000001",
+        "chart_encounter_ref": encounter_ref,
+        "subscriber_ref": facts.subscriber_ref,
+        "chart_revision": facts.revision,
+        "coverage_verified": 1,
+        "place_of_service": place_of_service,
+        "charges": [{"procedure_code": "G0008", "charge": "25.00", "units": 1, "diagnosis_pointers": "1"}],
     }
 
 
@@ -71,6 +86,32 @@ class BillingTest(TestCase):
         self.assertEqual(segments[-1][2], "000000121")
         self.assertIn("SV1*HC:99213*149.9*UN*1***1:2~", text)
         self.assertIn("NM1*82*1*CLINICIAN*TEST****XX*1111111111~", text)
+        self.assertEqual({segment[5] for segment in claim_segments}, {"11:B:1"})
+
+    def test_flu_administration_uses_chart_diagnosis_and_selected_place_of_service(self):
+        for pos in ("01", "60"):
+            with self.subTest(place_of_service=pos):
+                payload = build_test_batch(FLU_SETTINGS, [sample_flu_case(pos)], control_number=121, now=NOW)
+                segments = parse(payload.decode("ascii"))
+                self.assertEqual([segment[5] for segment in segments if segment[0] == "CLM"], [f"{pos}:B:1"])
+                self.assertEqual([segment[1:] for segment in segments if segment[0] == "HI"], [["ABK:Z23"]])
+                self.assertEqual([segment[1:] for segment in segments if segment[0] == "SV1"],
+                                 [["HC:G0008", "25", "UN", "1", "", "", "1"]])
+                self.assertIn(b"NM1*85*2*MEDS RX INC*", payload)
+                self.assertIn(b"*PI*04112~", payload)
+                self.assertEqual(segments[0][15], "T")
+
+    def test_flu_administration_rejects_missing_pos_and_other_service_lines(self):
+        for pos in ("", "11"):
+            with self.subTest(place_of_service=pos), self.assertRaisesRegex(ValueError, "place of service 01 or 60"):
+                build_test_batch(FLU_SETTINGS, [sample_flu_case(pos)], control_number=121, now=NOW)
+
+        for change in ({"procedure_code": "90662"}, {"procedure_code": "99213"}, {"units": 2}):
+            with self.subTest(line_change=change):
+                case = sample_flu_case("60")
+                case["charges"][0].update(change)
+                with self.assertRaisesRegex(ValueError, "single G0008 line"):
+                    build_test_batch(FLU_SETTINGS, [case], control_number=121, now=NOW)
 
     def test_novitas_edits_reject_malformed_test_files(self):
         text = build_test_batch(SETTINGS, [sample_case()], control_number=121, now=NOW).decode("ascii")

@@ -7,6 +7,7 @@
     "chart_encounter_ref",
     "subscriber_ref",
     "service_date",
+    "place_of_service",
     "diagnosis_count",
     "chart_revision",
     "synthetic_roster_sha256",
@@ -22,7 +23,7 @@
       "reqd": 1,
       "unique": 1,
       "in_list_view": 1,
-      "description": "Use a mock openChart reference from OC-MOCK-000001 through OC-MOCK-000025."
+      "description": "Use OC-MOCK for office visits or OC-MOCK-FLU for flu administration, numbered 000001 through 000025."
     },
     {
       "fieldname": "subscriber_ref",
@@ -37,6 +38,13 @@
       "reqd": 0,
       "in_list_view": 1,
       "read_only": 1
+    },
+    {
+      "fieldname": "place_of_service",
+      "label": "Place of service",
+      "fieldtype": "Select",
+      "options": "\n01\n11\n60",
+      "description": "Select 01 (pharmacy) or 60 (mass immunization center) for a flu test. Office cases default to 11."
     },
     {
       "fieldname": "diagnosis_count",

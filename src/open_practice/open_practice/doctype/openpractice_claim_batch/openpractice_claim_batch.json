@@ -4,7 +4,7 @@
   "module": "Open Practice",
   "engine": "InnoDB",
   "field_order": [
-    "visits",
+    "billing_cases",
     "claim_count",
     "interchange_control",
     "file_sha256",
@@ -16,10 +16,10 @@
   ],
   "fields": [
     {
-      "fieldname": "visits",
-      "label": "Finalized visits",
+      "fieldname": "billing_cases",
+      "label": "Approved billing cases",
       "fieldtype": "Table",
-      "options": "OpenPractice Claim Batch Visit",
+      "options": "OpenPractice Claim Batch Case",
       "reqd": 1
     },
     {

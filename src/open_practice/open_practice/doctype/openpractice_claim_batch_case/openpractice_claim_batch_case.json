@@ -1,17 +1,17 @@
 {
   "doctype": "DocType",
-  "name": "OpenPractice Claim Batch Visit",
+  "name": "OpenPractice Claim Batch Case",
   "module": "Open Practice",
   "engine": "InnoDB",
   "field_order": [
-    "visit"
+    "billing_case"
   ],
   "fields": [
     {
-      "fieldname": "visit",
-      "label": "Finalized visit",
+      "fieldname": "billing_case",
+      "label": "Approved billing case",
       "fieldtype": "Link",
-      "options": "OpenPractice Visit",
+      "options": "OpenPractice Billing Case",
       "reqd": 1,
       "in_list_view": 1
     }

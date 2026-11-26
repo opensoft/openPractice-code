@@ -1,0 +1,86 @@
+{
+  "doctype": "DocType",
+  "name": "OpenPractice Billing Case",
+  "module": "Open Practice",
+  "engine": "InnoDB",
+  "field_order": [
+    "chart_encounter_ref",
+    "subscriber_ref",
+    "service_date",
+    "diagnosis_count",
+    "chart_revision",
+    "coverage_verified",
+    "charges",
+    "claim_batch"
+  ],
+  "fields": [
+    {
+      "fieldname": "chart_encounter_ref",
+      "label": "Chart encounter reference",
+      "fieldtype": "Data",
+      "reqd": 1,
+      "unique": 1,
+      "in_list_view": 1,
+      "description": "Use a mock openChart reference from OC-MOCK-000001 through OC-MOCK-000025."
+    },
+    {
+      "fieldname": "subscriber_ref",
+      "label": "Billing subscriber reference",
+      "fieldtype": "Data",
+      "read_only": 1
+    },
+    {
+      "fieldname": "service_date",
+      "label": "Service date",
+      "fieldtype": "Date",
+      "reqd": 0,
+      "in_list_view": 1,
+      "read_only": 1
+    },
+    {
+      "fieldname": "diagnosis_count",
+      "label": "Confirmed diagnoses",
+      "fieldtype": "Int",
+      "read_only": 1
+    },
+    {
+      "fieldname": "chart_revision",
+      "label": "Billing facts revision",
+      "fieldtype": "Data",
+      "hidden": 1,
+      "read_only": 1,
+      "no_copy": 1
+    },
+    {
+      "fieldname": "coverage_verified",
+      "label": "Primary Medicare Part B coverage verified for this service date",
+      "fieldtype": "Check",
+      "description": "Verify primary coverage using the existing billing subscriber record."
+    },
+    {
+      "fieldname": "charges",
+      "label": "Service lines",
+      "fieldtype": "Table",
+      "options": "OpenPractice Billing Charge",
+      "reqd": 1
+    },
+    {
+      "fieldname": "claim_batch",
+      "label": "Released claim batch",
+      "fieldtype": "Data",
+      "read_only": 1,
+      "in_list_view": 1
+    }
+  ],
+  "autoname": "OPC-.#########",
+  "is_submittable": 1,
+  "permissions": [
+    {
+      "role": "OpenPractice Test Biller",
+      "create": 1,
+      "read": 1,
+      "write": 1,
+      "submit": 1
+    }
+  ]
+}

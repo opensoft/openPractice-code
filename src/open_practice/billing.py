@@ -1,10 +1,12 @@
-"""Map finalized test visits to a Colorado Medicare Part B 837P."""
+"""Map approved billing cases to a Colorado Medicare Part B 837P."""
 
 import re
 from datetime import date
 from decimal import Decimal, InvalidOperation
 
 from claimlab import x837p
+from open_practice.mock_openchart import read_mock_billing_facts
+from open_practice.test_subscriber_roster import get_test_subscriber
 
 
 PAYER_ID = "04112"
@@ -48,7 +50,7 @@ def _charge(line, service_date, diagnosis_count):
         raise ValueError("Enter one to four comma-separated diagnosis pointers for each line.")
     pointers = [int(pointer) for pointer in pointers.split(",")]
     if max(pointers) > diagnosis_count or len(pointers) != len(set(pointers)):
-        raise ValueError("Service line diagnosis pointers must identify distinct diagnoses on the visit.")
+        raise ValueError("Service line diagnosis pointers must identify distinct diagnoses from the charting handoff.")
     modifiers = [part.strip().upper() for part in (line.get("modifiers") or "").split(",") if part.strip()]
     if len(modifiers) > 4 or any(re.fullmatch(r"[A-Z0-9]{2}", part) is None for part in modifiers):
         raise ValueError("A service line supports up to four two-character modifiers.")
@@ -62,46 +64,46 @@ def _charge(line, service_date, diagnosis_count):
     }
 
 
-def visit_to_claim(visit, *, today):
-    if not visit.get("coverage_verified"):
+def case_to_claim(case, *, today):
+    if not case.get("coverage_verified"):
         raise ValueError("Verify primary Medicare Part B coverage for the date of service.")
-    service_date = _date(visit, "service_date")
-    birth_date = _date(visit, "date_of_birth")
+    facts = read_mock_billing_facts(case.get("chart_encounter_ref"))
+    if (case.get("subscriber_ref"), case.get("chart_revision")) != (facts.subscriber_ref, facts.revision):
+        raise ValueError("The charting handoff changed. Review the latest facts before release.")
+    subscriber = get_test_subscriber(facts.subscriber_ref)
+    service_date = facts.service_date
+    birth_date = _date(subscriber, "date_of_birth")
     if not birth_date <= service_date <= today:
         raise ValueError("Service date must fall between the patient's date of birth and today.")
-    diagnoses = [code.strip().upper() for code in (visit.get("diagnoses") or "").split(",")]
-    if not 1 <= len(diagnoses) <= 12 or any(
-        re.fullmatch(r"[A-Z][0-9][A-Z0-9](?:\.?[A-Z0-9]{1,4})?", code) is None for code in diagnoses
-    ):
-        raise ValueError("Enter one to twelve comma-separated ICD-10-CM codes.")
-    lines = [_charge(line, service_date, len(diagnoses)) for line in visit.get("charges") or []]
+    diagnoses = list(facts.diagnoses)
+    lines = [_charge(line, service_date, len(diagnoses)) for line in case.get("charges") or []]
     if not lines:
         raise ValueError("At least one service line is required.")
     if sum(line["charge"] for line in lines) > Decimal("99999.90"):
         raise ValueError("Total claim charges exceed Medicare's limit.")
     return {
         "patient": {
-            "first": _field(visit, "patient_first_name", limit=35),
-            "last": _field(visit, "patient_last_name"),
-            "member_id": _field(visit, "member_id", r"[A-Z0-9]{11}"),
+            "first": _field(subscriber, "patient_first_name", limit=35),
+            "last": _field(subscriber, "patient_last_name"),
+            "member_id": _field(subscriber, "member_id", r"[A-Z0-9]{11}"),
             "dob": birth_date.strftime("%Y%m%d"),
-            "sex": _field(visit, "administrative_sex", r"[FM]"),
-            **_address(visit),
+            "sex": _field(subscriber, "administrative_sex", r"[FM]"),
+            **_address(subscriber),
         },
         "payer": {"name": "MEDICARE PART B", "id": PAYER_ID, "filing": "MB"},
-        "claim": {"id": _field(visit, "name", r"[A-Z0-9-]{1,17}"), "pos": "11", "diagnoses": diagnoses, "lines": lines},
+        "claim": {"id": _field(case, "name", r"[A-Z0-9-]{1,17}"), "pos": "11", "diagnoses": diagnoses, "lines": lines},
     }
 
 
-def build_test_batch(settings, visits, *, control_number, now):
+def build_test_batch(settings, cases, *, control_number, now):
     """Export original office-service claims for one enrolled Colorado billing provider."""
     if type(control_number) is not int or not 1 <= control_number <= 999_999_999:
         raise ValueError("Interchange control number must be between 1 and 999999999.")
-    if not visits:
-        raise ValueError("Select at least one finalized visit.")
-    claims = [visit_to_claim(visit, today=now.date()) for visit in visits]
+    if not cases:
+        raise ValueError("Select at least one approved billing case.")
+    claims = [case_to_claim(case, today=now.date()) for case in cases]
     if len({row["claim"]["id"] for row in claims}) != len(claims):
-        raise ValueError("Each visit may appear once in a claim batch.")
+        raise ValueError("Each billing case may appear once in a claim batch.")
 
     entity = _field(settings, "provider_type", r"INDIVIDUAL|ORGANIZATION")
     tax_type = _field(settings, "tax_qualifier", r"EI|SY")

@@ -42,10 +42,14 @@ bench --site test.localhost install-app open_practice
    JH submitter ID, provider identifiers and a range of unused
    interchange control numbers. The settings form requires the first number
    in that range. Keep portal sign-in credentials in Novitasphere.
-2. Assign **OpenPractice Test Biller** to the biller. Create an **OpenPractice
-   Visit**, confirm primary Medicare Part B coverage, enter office service
-   lines and confirmed ICD-10-CM diagnosis codes, then submit the visit.
-3. Add finalized visits to an **OpenPractice Claim Batch**. Submit to release
+2. Assign **OpenPractice Test Biller** to the biller. Start an **OpenPractice
+   Billing Case** using a chart encounter reference from
+   `OC-MOCK-000001` through `OC-MOCK-000025`. The mock openChart adapter reads
+   the version 1.0 clinical-facts billing subset and resolves the linked
+   subscriber against the preloaded synthetic administrative roster. Confirm
+   primary Medicare Part B coverage and add the confirmed service charges.
+   Submit the billing case to approve it for release.
+3. Add approved billing cases to an **OpenPractice Claim Batch**. Submit to release
    the batch, then choose **Download test 837P**. The release fixes the claim
    content and its SHA-256 digest. Each file uses Colorado Part B receiver
    and payer ID `04112` and test flag `T`. Follow the enrollment instructions for the size
@@ -56,6 +60,15 @@ bench --site test.localhost install-app open_practice
    acceptance at both levels.
 
 [Novitas JH 837P companion guide](https://www.novitas-solutions.com/webcenter/content/conn/UCM_Repository/uuid/dDocName%3A00198701) · [Novitasphere upload instructions](https://www.novitas-solutions.com/webcenter/portal/MedicareJL/pagebyid?contentId=00027493)
+
+The charting system owns the visit, clinical intake and signed diagnosis.
+openChart is the preferred integration and the example in this test slice.
+Other charting systems can supply billing facts through an adapter. The
+billing case stores a chart reference, a billing subscriber reference, a
+service date, confirmed diagnosis count, and a revision digest. Diagnosis
+codes and administrative subscriber details feed the released 837P, which
+contains sensitive data for real claims. The mock and preloaded roster use
+synthetic data.
 
 To compare field mappings, export the same test cases from PC-ACE and compare the
 two files with `python -m src.claimlab.x837p diff pcace.dat openpractice.837`.

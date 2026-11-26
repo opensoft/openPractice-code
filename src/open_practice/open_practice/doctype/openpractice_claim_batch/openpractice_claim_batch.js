@@ -1,6 +1,6 @@
 frappe.ui.form.on("OpenPractice Claim Batch", {
     setup(frm) {
-        frm.set_query("visit", "visits", () => ({
+        frm.set_query("billing_case", "billing_cases", () => ({
             filters: { docstatus: 1 }
         }));
     },

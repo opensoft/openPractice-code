@@ -2,16 +2,15 @@ from hashlib import sha256
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
-from frappe.utils import add_days, today
 
 from open_practice.open_practice.doctype.openpractice_claim_batch.openpractice_claim_batch import (
     download_837p,
 )
-from open_practice.tests.test_billing import SETTINGS, sample_visit
+from open_practice.tests.test_billing import SETTINGS, sample_case
 
 
 class TestOpenPracticeClaimBatch(FrappeTestCase):
-    def test_visit_release_download_and_record_portal_result(self):
+    def test_chart_handoff_release_download_and_record_portal_result(self):
         frappe.set_user("Administrator")
         self.addCleanup(frappe.set_user, "Administrator")
         settings = frappe.get_single("OpenPractice EDI Settings")
@@ -27,26 +26,32 @@ class TestOpenPracticeClaimBatch(FrappeTestCase):
         ).insert()
         frappe.set_user(biller.name)
 
-        values = sample_visit()
-        values.pop("name")
-        values["service_date"] = add_days(today(), -1)
-        visit = frappe.get_doc(doctype="OpenPractice Visit", **values).insert()
-        visit.submit()
-        batch = frappe.get_doc(doctype="OpenPractice Claim Batch", visits=[{"visit": visit.name}]).insert()
+        values = sample_case()
+        for field in ("name", "subscriber_ref", "chart_revision"):
+            values.pop(field)
+        case = frappe.get_doc(doctype="OpenPractice Billing Case", **values).insert()
+        self.assertEqual(case.diagnosis_count, 2)
+        for field in ("diagnoses", "member_id", "date_of_birth", "patient_first_name"):
+            self.assertIsNone(case.meta.get_field(field))
+        self.assertFalse(frappe.db.exists("DocType", "OpenPractice Visit"))
+        case.submit()
+        rows = [{"billing_case": case.name}]
+        batch = frappe.get_doc(doctype="OpenPractice Claim Batch", billing_cases=rows).insert()
         with self.assertRaises(frappe.ValidationError):
             download_837p(batch.name)
         batch.submit()
-        self.assertEqual(visit.reload().claim_batch, batch.name)
+        self.assertEqual(case.reload().claim_batch, batch.name)
         self.assertEqual(batch.claim_count, 1)
 
         download_837p(batch.name)
         payload = frappe.local.response["filecontent"]
         self.assertEqual(sha256(payload).hexdigest(), batch.file_sha256)
-        self.assertIn(f"CLM*{visit.name}*150*".encode("ascii"), payload)
+        self.assertIn(f"CLM*{case.name}*150*".encode("ascii"), payload)
+        self.assertIn(b"HI*ABK:E119*ABF:I10~", payload)
         self.assertIn(b"*PI*04112~", payload)
         self.assertIn(b"*1*T*:", payload)
 
-        duplicate = frappe.get_doc(doctype="OpenPractice Claim Batch", visits=[{"visit": visit.name}]).insert()
+        duplicate = frappe.get_doc(doctype="OpenPractice Claim Batch", billing_cases=rows).insert()
         with self.assertRaises(frappe.ValidationError):
             duplicate.submit()
 

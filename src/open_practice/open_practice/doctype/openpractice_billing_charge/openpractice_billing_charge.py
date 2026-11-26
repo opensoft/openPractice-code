@@ -1,5 +1,5 @@
 from frappe.model.document import Document
 
 
-class OpenPracticeClaimBatchVisit(Document):
+class OpenPracticeBillingCharge(Document):
     pass

@@ -26,16 +26,16 @@ class OpenPracticeClaimBatch(Document):
 
     def before_submit(self):
         self._clear_release()
-        visit_names = [row.visit for row in self.visits]
-        if not visit_names or len(visit_names) != len(set(visit_names)):
-            frappe.throw("Select distinct finalized visits for this batch.")
-        visits = []
-        for name in sorted(visit_names):
-            visit = frappe.get_doc("OpenPractice Visit", name, for_update=True)
-            visit.check_permission("read")
-            if visit.docstatus != 1 or visit.claim_batch:
-                frappe.throw("A visit is still a draft or already belongs to a released claim batch.")
-            visits.append(visit.as_dict())
+        case_names = [row.billing_case for row in self.billing_cases]
+        if not case_names or len(case_names) != len(set(case_names)):
+            frappe.throw("Select distinct approved billing cases for this batch.")
+        cases = []
+        for name in sorted(case_names):
+            case = frappe.get_doc("OpenPractice Billing Case", name, for_update=True)
+            case.check_permission("read")
+            if case.docstatus != 1 or case.claim_batch:
+                frappe.throw("A billing case is still a draft or already belongs to a released claim batch.")
+            cases.append(case.as_dict())
 
         settings = frappe.get_single("OpenPractice EDI Settings")
         try:
@@ -43,18 +43,18 @@ class OpenPracticeClaimBatch(Document):
             if not 1 <= first_control <= 999_999_999:
                 raise ValueError("Configure the first unused interchange control number in EDI Settings.")
             control_number = first_control + int(self.name.removeprefix("OPB-")) - 1
-            payload = build_test_batch(settings.as_dict(), visits, control_number=control_number, now=now_datetime())
+            payload = build_test_batch(settings.as_dict(), cases, control_number=control_number, now=now_datetime())
         except ValueError as error:
             frappe.throw(str(error))
 
         self.edi_payload = payload.decode("ascii")
         self.file_sha256 = sha256(payload).hexdigest()
         self.interchange_control = f"{control_number:09d}"
-        self.claim_count = len(visits)
+        self.claim_count = len(cases)
 
     def on_submit(self):
-        for row in self.visits:
-            frappe.db.set_value("OpenPractice Visit", row.visit, "claim_batch", self.name)
+        for row in self.billing_cases:
+            frappe.db.set_value("OpenPractice Billing Case", row.billing_case, "claim_batch", self.name)
 
     def before_update_after_submit(self):
         require_test_site()

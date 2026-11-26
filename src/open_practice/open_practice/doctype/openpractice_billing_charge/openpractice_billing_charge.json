@@ -1,6 +1,6 @@
 {
   "doctype": "DocType",
-  "name": "OpenPractice Visit Charge",
+  "name": "OpenPractice Billing Charge",
   "module": "Open Practice",
   "engine": "InnoDB",
   "field_order": [

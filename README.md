@@ -25,3 +25,30 @@ navigation; authority travels in grants, and a project that keeps spec and
 code in one repository is reviewed identically.
 
 Topic: `xf-project-openpractice`.
+
+## Two-phase MVP
+
+**Phase 1** is a local, single-operator rehearsal. Book a synthetic patient at
+a clinic or assisted living facility and independently select in person or
+telemedicine. One screen records arrival or session availability, patient
+readiness, session start, session end and wrap-up. Session end signals the
+room or call can be released and administrative handoff can begin. Wrap-up
+requires explicit confirmation that the clinician finished charting and marks
+the session ready for billing. The chart stays in the charting system.
+
+Both test sites use Mountain Time. The session desk uses the Python standard
+library and stores synthetic bookings and progress timestamps in a local SQLite
+file. From this worktree in PowerShell, run:
+
+```powershell
+$env:PYTHONPATH = Join-Path (Get-Location) 'src'
+python -m open_practice.session_desk --database (Join-Path $env:LOCALAPPDATA 'openPractice\session-desk.sqlite3')
+```
+
+Open `http://127.0.0.1:17824/` on the same machine. Use the demo patient
+references provided by the form.
+
+**Phase 2** adds the live chart completion and billing handoff, shared access
+for staff, and the agreed administrative and clinical boundaries for telemedicine
+preparation. The existing Colorado claim and staffing drafts can attach after
+the basic appointment-to-wrap-up workflow is validated.

@@ -195,3 +195,36 @@ the approved attendance. The provider records remain available for inspection.
 ```powershell
 python -m unittest -v open_practice.tests.test_quickbooks_time_live
 ```
+
+## QuickBooks Online sandbox TimeActivity smoke test
+
+This Windows QA runner uses the QuickBooks Online Accounting sandbox API to
+create one synthetic, eight-minute, nonbillable employee TimeActivity and
+read it back by ID. It uses the existing record on subsequent runs against
+the same sandbox and state directory. Live QuickBooks Time v1 T-12 has its
+own runner and tenant authorization.
+
+Use a dedicated QA vault, a synthetic QuickBooks Online sandbox company, and
+a signed-in Azure CLI identity with access to read secrets and update the
+refresh grant. In the vault, store these JSON objects as secret values.
+
+- `openpractice-qbo-sandbox-app` with string fields `client_id` and `client_secret`.
+- `openpractice-qbo-sandbox-grant` with string fields `realm_id` and `refresh_token`.
+
+From the code checkout, provide the Python used to run Azure CLI if it lives
+in a separate environment. The runner needs IANA time-zone data when using a
+non-UTC zone. Use a private state directory outside the checkout and reuse it
+for every rerun so the runner can find the original receipt.
+
+```powershell
+$stateDir = Join-Path $env:LOCALAPPDATA 'openPractice/quickbooks-online-sandbox'
+python scripts/qbo_sandbox/timeactivity_smoke.py `
+  --vault-name '<qa-vault-name>' --subscription '<qa-subscription>' `
+  --azure-cli-python '<path-to-python-with-azure-cli>' `
+  --state-dir $stateDir --time-zone 'America/La_Paz'
+```
+
+The runner obtains an access token in memory and saves a replacement refresh
+token to the vault when Intuit returns one. Keep its receipt and connection lock
+in the state directory. The receipt carries the synthetic request and activity ID
+so a retry can resume after an interrupted create or verify an existing record.

@@ -35,6 +35,12 @@ def cancel(client, doctype, name):
 @skipUnless(os.environ.get("OPENHR_T26_NATIVE") == "1", "No native openHR acceptance site configured")
 class OpenHRNativeSiteAcceptanceTest(TestCase):
     def test_t26_through_native_shift_assignments_and_attendance(self):
+        self._run_callout()
+
+    def test_t26_keeps_overlapping_companies_isolated(self):
+        self._run_callout(verify_company_isolation=True)
+
+    def _run_callout(self, *, verify_company_isolation=False):
         url = os.environ["OPENHR_T26_URL"]
 
         def client(role):
@@ -65,11 +71,14 @@ class OpenHRNativeSiteAcceptanceTest(TestCase):
         def local(value, fmt):
             return value.astimezone(zone).strftime(fmt)
 
-        company_name = "Synthetic OpenPractice T26"
         ensure(setup, "Warehouse Type", "Transit", {"name": "Transit"})
-        company = ensure(setup, "Company", company_name, {
-            "company_name": company_name, "abbr": "T26", "default_currency": "USD", "country": "United States",
-        })["name"]
+
+        def synthetic_company(name, abbr):
+            return ensure(setup, "Company", name, {
+                "company_name": name, "abbr": abbr, "default_currency": "USD", "country": "United States",
+            })["name"]
+
+        company = synthetic_company("Synthetic OpenPractice T26", "T26")
         gender = ensure(setup, "Gender", "Not Specified", {"gender": "Not Specified"})["name"]
         location = setup.create("Shift Location", {"location_name": series})["name"]
         shift_type = setup.create("Shift Type", {
@@ -80,31 +89,45 @@ class OpenHRNativeSiteAcceptanceTest(TestCase):
         skills = {assignment.staff_id: (assignment.role, assignment.qualification) for assignment in published.assignments}
         skills.update({candidate.staff_id: (candidate.qualifications[0].role, candidate.qualifications[0].name)
                        for candidate in candidates})
-        employees = {
-            staff_id: setup.create("Employee", {
-                "naming_series": "HR-EMP-", "first_name": staff_id, "gender": gender, "status": "Active",
-                "date_of_birth": "1990-01-01", "date_of_joining": "2024-01-01", "company": company,
-            })["name"]
-            for staff_id in skills
-        }
-        scope = manager.create("OpenPractice Native Roster", {
-            "roster_series": series, "location_ref": interval.location, "shift_location": location, "work_date": native_day,
-            "workers_json": json.dumps({
-                employees[staff_id]: {"staff_id": staff_id, "role": role, "qualification": qualification}
-                for staff_id, (role, qualification) in skills.items()
-            }),
-        })
-        self.assertEqual(scope["time_zone"], site_zone)
 
-        def shift(staff_id, request=None):
+        def create_roster(roster_series, employer, workers):
+            employees = {
+                staff_id: setup.create("Employee", {
+                    "naming_series": "HR-EMP-", "first_name": staff_id, "gender": gender, "status": "Active",
+                    "date_of_birth": "1990-01-01", "date_of_joining": "2024-01-01", "company": employer,
+                })["name"]
+                for staff_id in workers
+            }
+            roster = manager.create("OpenPractice Native Roster", {
+                "roster_series": roster_series, "location_ref": interval.location,
+                "shift_location": location, "work_date": native_day,
+                "workers_json": json.dumps({
+                    employees[staff_id]: {"staff_id": staff_id, "role": role, "qualification": qualification}
+                    for staff_id, (role, qualification) in workers.items()
+                }),
+            })
+            self.assertEqual(roster["time_zone"], site_zone)
+            return employees, roster
+
+        employees, scope = create_roster(series, company, skills)
+
+        def shift(employee, employer, roster_name, request=None):
             fields = {
-                "employee": employees[staff_id], "company": company, "shift_type": shift_type,
+                "employee": employee, "company": employer, "shift_type": shift_type,
                 "shift_location": location, "start_date": native_day, "end_date": native_day,
-                "status": "Active", "custom_openpractice_roster": scope["name"],
+                "status": "Active", "custom_openpractice_roster": roster_name,
             }
             if request is not None:
                 fields["custom_openpractice_coverage_request"] = request.correlation_id
             return manager.create("Shift Assignment", fields)
+
+        def attendance(employee, employer, window):
+            return manager.create("Attendance", {
+                "employee": employee, "company": employer, "shift": shift_type,
+                "attendance_date": native_day, "status": "Present",
+                "in_time": local(window.starts_at, "%Y-%m-%d %H:%M:%S"),
+                "out_time": local(window.ends_at, "%Y-%m-%d %H:%M:%S"),
+            })
 
         def read():
             evidence = conformance.read(adapter)
@@ -113,8 +136,8 @@ class OpenHRNativeSiteAcceptanceTest(TestCase):
                 attendance=evidence.attendance,
             )
 
-        first_shift = submit(manager, shift(first.staff_id))
-        called_out_shift = submit(manager, shift(called_out.staff_id))
+        first_shift = submit(manager, shift(employees[first.staff_id], company, scope["name"]))
+        called_out_shift = submit(manager, shift(employees[called_out.staff_id], company, scope["name"]))
         submit(manager, scope)
         evidence, baseline = read()
         self.assertEqual(baseline.published.assignments, published.assignments)
@@ -138,7 +161,32 @@ class OpenHRNativeSiteAcceptanceTest(TestCase):
         conformance.expect_open_shift(evidence, request, "pending")
         self.assertEqual(pending.revised_gaps, (gap,))
 
-        float_draft = shift(candidates[1].staff_id, request)
+        if verify_company_isolation:
+            other_company = synthetic_company("Synthetic OpenPractice T26 Isolation", "T26B")
+            self.assertNotEqual(other_company, company)
+            other_series = f"{series}-b"
+            other_workers = {
+                staff_id: (interval.role, interval.qualification)
+                for staff_id in ("isolation-b-rn-1", "isolation-b-rn-2")
+            }
+            other_employees, other_scope = create_roster(other_series, other_company, other_workers)
+            other_conformance = StaffingConformance(self, other_series)
+            expected = {replace(first, staff_id=staff_id) for staff_id in other_workers}
+
+            for employee in other_employees.values():
+                submit(manager, shift(employee, other_company, other_scope["name"]))
+            submit(manager, other_scope)
+            other = other_conformance.read(adapter)
+            self.assertEqual(set(other.published.assignments), expected)
+            self.assertEqual(read(), (evidence, pending))
+
+            for employee in other_employees.values():
+                submit(manager, attendance(employee, other_company, first.window))
+            other = other_conformance.read(adapter)
+            self.assertEqual(set(other.attendance.worked_intervals), expected)
+            self.assertEqual(read(), (evidence, pending))
+
+        float_draft = shift(employees[candidates[1].staff_id], company, scope["name"], request)
         with self.assertRaises(FrappeHTTPError) as denied:
             submit(service, float_draft)
         self.assertEqual(denied.exception.status, 403)
@@ -156,15 +204,9 @@ class OpenHRNativeSiteAcceptanceTest(TestCase):
         sources = json.loads(service.get(ROSTER, covered.revised.reference)["assignments_json"])
         self.assertEqual({row["source_shift_assignment"] for row in sources}, {first_shift["name"], float_shift["name"]})
 
-        def attendance(assignment):
-            return manager.create("Attendance", {
-                "employee": employees[assignment.staff_id], "company": company, "shift": shift_type,
-                "attendance_date": native_day, "status": "Present",
-                "in_time": local(assignment.window.starts_at, "%Y-%m-%d %H:%M:%S"),
-                "out_time": local(assignment.window.ends_at, "%Y-%m-%d %H:%M:%S"),
-            })
-
-        original_draft, float_attendance_draft = map(attendance, worked.worked_intervals)
+        original_draft, float_attendance_draft = (
+            attendance(employees[item.staff_id], company, item.window) for item in worked.worked_intervals
+        )
         evidence, before_approval = read()
         self.assertIsNone(before_approval.approved_attendance_gaps)
 
@@ -193,7 +235,8 @@ class OpenHRNativeSiteAcceptanceTest(TestCase):
         _, withdrawn = read()
         self.assertEqual(withdrawn.attendance.worked_intervals, (first,))
         self.assertEqual(withdrawn.attendance.unresolved_exceptions, (float_shift["name"],))
-        submit(manager, attendance(worked.worked_intervals[-1]))
+        last_worked = worked.worked_intervals[-1]
+        submit(manager, attendance(employees[last_worked.staff_id], company, last_worked.window))
         _, corrected = read()
         self.assertEqual(corrected.approved_attendance_gaps, actual.approved_attendance_gaps)
         self.assertEqual(corrected.attendance.unresolved_exceptions, ())

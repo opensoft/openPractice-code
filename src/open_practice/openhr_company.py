@@ -3,6 +3,7 @@
 import json
 import re
 from http.client import HTTPException
+from time import monotonic, sleep
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
@@ -10,6 +11,8 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 REQUEST_FIELD = "custom_openpractice_request_id"
 COMPANY_API = "/api/resource/Company"
+REQUEST_TIMEOUT = 8
+RECONCILE_INTERVAL = 0.2
 
 
 class CompanyUnavailable(Exception):
@@ -44,7 +47,7 @@ class CompanyConnector:
         self.currency = currency
         self.opener = build_opener(NoRedirect())
 
-    def _request(self, path, payload=None):
+    def _request(self, path, payload=None, *, timeout=REQUEST_TIMEOUT):
         request = Request(
             self.url + COMPANY_API + path,
             data=json.dumps(payload).encode("utf-8") if payload is not None else None,
@@ -57,7 +60,7 @@ class CompanyConnector:
         if self.site_name:
             request.add_header("X-Frappe-Site-Name", self.site_name)
         try:
-            with self.opener.open(request, timeout=8) as response:
+            with self.opener.open(request, timeout=timeout) as response:
                 return json.load(response)["data"]
         except HTTPError as error:
             if error.code == 404 and payload is None and path.startswith("/"):
@@ -66,13 +69,13 @@ class CompanyConnector:
         except (URLError, OSError, HTTPException, ValueError, KeyError, TypeError) as error:
             raise CompanyUnavailable("The openHR request could not be verified.") from error
 
-    def _find_request(self, request_id):
+    def _find_request(self, request_id, *, timeout=REQUEST_TIMEOUT):
         query = urlencode({
             "filters": json.dumps([[REQUEST_FIELD, "=", request_id]]),
             "fields": json.dumps(["name", "is_group", REQUEST_FIELD]),
             "limit_page_length": 2,
         })
-        rows = self._request("?" + query)
+        rows = self._request("?" + query, timeout=timeout)
         if not isinstance(rows, list):
             raise CompanyUnavailable("Unexpected Company lookup result.")
         if not rows:
@@ -82,11 +85,17 @@ class CompanyConnector:
         return rows[0]["name"]
 
     def create_or_recover(self, request_id, legal_entity_name, *, submitted, mark_submitted):
+        if submitted:
+            deadline = monotonic() + REQUEST_TIMEOUT
+            while (remaining := deadline - monotonic()) > 0:
+                company = self._find_request(request_id, timeout=remaining)
+                if company:
+                    return company
+                sleep(min(RECONCILE_INTERVAL, remaining))
+            raise CompanyUnavailable("The previous create is still unresolved.")
         company = self._find_request(request_id)
         if company:
             return company
-        if submitted:
-            raise CompanyUnavailable("The previous create is still unresolved.")
         mark_submitted()
         self._request("", {
             "company_name": legal_entity_name,

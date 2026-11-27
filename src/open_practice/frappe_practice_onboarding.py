@@ -111,6 +111,9 @@ def connect_company(mode, company_id=None, confirmed=False):
             raise CompanyConflict("The configured openHR site changed for this request.")
         draft.openhr_site = connector.site
         if mode == "Create Company":
+            if draft.create_submitted:
+                # Release the read lock so the original request can save its result.
+                frappe.db.commit()
             company = connector.create_or_recover(
                 draft.request_id, draft.legal_entity_name,
                 submitted=draft.create_submitted, mark_submitted=mark_submitted,

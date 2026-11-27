@@ -15,6 +15,6 @@ include = ["open_practice*", "claimlab"]
 [tool.setuptools.package-data]
 open_practice = [
     "modules.txt", "fixtures/*.json", "open_practice/doctype/*/*.json", "open_practice/doctype/*/*.js",
-    "public/session_desk/*.js", "public/session_desk/*.css", "session_desk_web/*.html", "www/*.html"
+    "public/onboarding/*.js", "public/onboarding/*.css", "public/session_desk/*.js", "public/session_desk/*.css", "session_desk_web/*.html", "www/*.html"
 ]
 claimlab = ["sandbox_ui/*.html", "sandbox_ui/*.css", "sandbox_ui/*.js", "fixtures/carrier-profile.json"]

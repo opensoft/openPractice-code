@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="practicelab-csrf" content="{{ csrf_token }}">
+    <title>New Practice · openPractice</title>
+    <link rel="stylesheet" href="/assets/open_practice/onboarding/setup.css">
+    <script src="/assets/open_practice/onboarding/setup.js" defer></script>
+  </head>
+  <body>
+    <header><div><span>openPractice</span><a href="/logout">Sign out</a></div></header>
+    <main>
+      <h1>New Practice</h1>
+      <form id="setup">
+        <h2>Practice details</h2>
+        <label>Office name <input name="office_name" maxlength="140" required></label>
+        <label>Office address <textarea name="office_address" rows="2" maxlength="500" required></textarea></label>
+        <label>Legal entity name <input name="legal_entity_name" maxlength="120" required></label>
+        <label>Practice type
+          <select name="practice_type" required>
+            <option value="">Choose a practice type</option>
+            <option>Single practitioner</option>
+            <option>Group</option>
+          </select>
+        </label>
+        <button>Save practice</button>
+      </form>
+      <form id="connection" hidden>
+        <h2>openHR Company</h2>
+        <label id="action-label">Company action
+          <select name="mode">
+            <option>Create Company</option>
+            <option>Link existing Company</option>
+          </select>
+        </label>
+        <div id="link-fields" hidden>
+          <label>Existing Company ID <input name="company_id" maxlength="140"></label>
+          <label class="confirmation"><input type="checkbox" name="confirmed">
+            I confirm this Company represents the legal entity entered above.
+          </label>
+        </div>
+        <p id="company" hidden></p>
+        <button id="connect">Connect Company</button>
+      </form>
+      <p id="notice" role="status" aria-live="polite"></p>
+    </main>
+  </body>
+</html>

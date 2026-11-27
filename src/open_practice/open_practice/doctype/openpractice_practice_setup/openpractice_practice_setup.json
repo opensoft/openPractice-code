@@ -1,0 +1,104 @@
+{
+  "doctype": "DocType",
+  "name": "OpenPractice Practice Setup",
+  "module": "Open Practice",
+  "engine": "InnoDB",
+  "autoname": "hash",
+  "track_changes": 1,
+  "field_order": [
+    "practice_admin",
+    "office_name",
+    "office_address",
+    "legal_entity_name",
+    "practice_type",
+    "request_id",
+    "create_submitted",
+    "connection_mode",
+    "requested_company",
+    "openhr_site",
+    "openhr_company",
+    "connection_status"
+  ],
+  "fields": [
+    {
+      "fieldname": "practice_admin",
+      "label": "Practice administrator",
+      "fieldtype": "Link",
+      "options": "User",
+      "unique": 1,
+      "reqd": 1
+    },
+    {
+      "fieldname": "office_name",
+      "label": "Office name",
+      "fieldtype": "Data",
+      "reqd": 1
+    },
+    {
+      "fieldname": "office_address",
+      "label": "Office address",
+      "fieldtype": "Small Text",
+      "reqd": 1
+    },
+    {
+      "fieldname": "legal_entity_name",
+      "label": "Legal entity name",
+      "fieldtype": "Data",
+      "reqd": 1
+    },
+    {
+      "fieldname": "practice_type",
+      "label": "Practice type",
+      "fieldtype": "Select",
+      "options": "Single practitioner\nGroup",
+      "reqd": 1
+    },
+    {
+      "fieldname": "request_id",
+      "label": "Company request ID",
+      "fieldtype": "Data",
+      "unique": 1,
+      "reqd": 1,
+      "read_only": 1
+    },
+    {
+      "fieldname": "create_submitted",
+      "label": "Create submitted",
+      "fieldtype": "Check",
+      "default": "0",
+      "read_only": 1
+    },
+    {
+      "fieldname": "connection_mode",
+      "label": "Connection mode",
+      "fieldtype": "Select",
+      "options": "\nCreate Company\nLink existing Company"
+    },
+    {
+      "fieldname": "requested_company",
+      "label": "Requested Company",
+      "fieldtype": "Data"
+    },
+    {
+      "fieldname": "openhr_site",
+      "label": "openHR site",
+      "fieldtype": "Data",
+      "read_only": 1
+    },
+    {
+      "fieldname": "openhr_company",
+      "label": "openHR Company ID",
+      "fieldtype": "Data",
+      "read_only": 1
+    },
+    {
+      "fieldname": "connection_status",
+      "label": "Connection status",
+      "fieldtype": "Select",
+      "options": "Practice saved\nConnection unresolved\nCompany needs review\nCompany connected",
+      "default": "Practice saved",
+      "read_only": 1
+    }
+  ],
+  "permissions": []
+}

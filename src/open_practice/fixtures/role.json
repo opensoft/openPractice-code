@@ -16,5 +16,11 @@
     "name": "OpenPractice Scheduler",
     "role_name": "OpenPractice Scheduler",
     "desk_access": 0
+  },
+  {
+    "doctype": "Role",
+    "name": "OpenPractice Practice Administrator",
+    "role_name": "OpenPractice Practice Administrator",
+    "desk_access": 0
   }
 ]

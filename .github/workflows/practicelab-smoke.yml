@@ -2,7 +2,7 @@ name: PracticeLab Frappe smoke
 
 on:
   push:
-    branches: [draft/practicelab-frappe]
+    branches: [draft/practicelab-frappe, draft/practicelab-onboarding]
   workflow_dispatch:
 
 permissions:
@@ -33,7 +33,7 @@ jobs:
           docker run -d --name db --network practicelab \
             -e MARIADB_ROOT_PASSWORD="$PRACTICELAB_DB_ROOT_PASSWORD" \
             mariadb:10.6 --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
-          docker run -d --name practice --network practicelab -p 127.0.0.1:8000:8000 \
+          docker run -d --name practice --network practicelab -p 127.0.0.1:8000:8000 -p 127.0.0.1:8010:8010 \
             -e PRACTICELAB_SMOKE_USER -e PRACTICELAB_SMOKE_PASSWORD -e PRACTICELAB_DB_ROOT_PASSWORD \
             practicelab:smoke sleep infinity
           docker exec practice bash -euc '
@@ -66,3 +66,36 @@ jobs:
           python -m pip install playwright
           python -m playwright install --with-deps chromium
           python deploy/practicelab/smoke.py
+      - name: Start the disposable openHR fork site
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PRACTICELAB_COMPANY_KEY="$(openssl rand -hex 8)"
+          export PRACTICELAB_COMPANY_SECRET="$(openssl rand -hex 16)"
+          echo "::add-mask::$PRACTICELAB_COMPANY_KEY"
+          echo "::add-mask::$PRACTICELAB_COMPANY_SECRET"
+          echo "PRACTICELAB_COMPANY_KEY=$PRACTICELAB_COMPANY_KEY" >> "$GITHUB_ENV"
+          echo "PRACTICELAB_COMPANY_SECRET=$PRACTICELAB_COMPANY_SECRET" >> "$GITHUB_ENV"
+          docker exec -e PRACTICELAB_COMPANY_KEY -e PRACTICELAB_COMPANY_SECRET practice bash -euc '
+            git init -q apps/hrms
+            git -C apps/hrms fetch --depth 1 https://github.com/opensoft/openHR.git 0a54d2c7b8b6043e2705b6f557b6ed65260670dd
+            git -C apps/hrms checkout -q --detach FETCH_HEAD
+            env/bin/pip install -e apps/hrms
+            printf "%s\n" erpnext hrms >> sites/apps.txt
+            bench new-site openhr.localhost --mariadb-user-host-login-scope="%" \
+              --db-root-password "$PRACTICELAB_DB_ROOT_PASSWORD" --admin-password "$PRACTICELAB_SMOKE_PASSWORD"
+            bench --site openhr.localhost install-app erpnext
+            bench --site openhr.localhost install-app hrms
+            bench --site openhr.localhost execute open_practice.practicelab_onboarding_smoke.configure_openhr
+            bench --site practicelab.localhost execute open_practice.practicelab_onboarding_smoke.configure_practicelab
+          '
+          docker exec -d practice bash -c \
+            'bench --site openhr.localhost serve --port 8010 --noreload >/tmp/openhr-http.log 2>&1'
+          docker exec -d practice bash -c \
+            'env/bin/python apps/open_practice/deploy/practicelab/openhr_fault_proxy.py >/tmp/openhr-proxy.log 2>&1'
+          if ! curl -fsS --retry 15 --retry-all-errors --retry-delay 2 "http://127.0.0.1:8010/api/method/ping"; then
+            docker exec practice tail -60 /tmp/openhr-http.log
+            exit 1
+          fi
+      - name: Verify practice create, link, and lost response in the browser
+        run: python deploy/practicelab/onboarding_smoke.py

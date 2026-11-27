@@ -7,6 +7,7 @@ app_license = "Apache-2.0"
 fixtures = [
     {"dt": "Role", "filters": [["name", "in", [
         "OpenPractice Test Biller", "OpenPractice Billing Evidence", "OpenPractice Scheduler",
+        "OpenPractice Practice Administrator",
     ]]]}
 ]
 before_install = "open_practice.site.require_install_site"

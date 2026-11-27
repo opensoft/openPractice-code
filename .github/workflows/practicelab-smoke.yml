@@ -87,7 +87,7 @@ jobs:
             bench --site practicelab.localhost execute open_practice.practicelab_onboarding_smoke.configure_practicelab
           '
           docker exec -d practice bash -c \
-            'bench serve --port 8010 --noreload >/tmp/openhr-http.log 2>&1'
+            'env/bin/gunicorn --chdir sites --bind 0.0.0.0:8010 --workers 2 frappe.app:application >/tmp/openhr-http.log 2>&1'
           docker cp deploy/practicelab/openhr_fault_proxy.py practice:/tmp/openhr_fault_proxy.py
           docker exec -d practice bash -c \
             'env/bin/python /tmp/openhr_fault_proxy.py >/tmp/openhr-proxy.log 2>&1'

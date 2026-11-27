@@ -45,7 +45,7 @@ jobs:
             bench set-config -g redis_cache redis://redis:6379/0
             bench set-config -g redis_queue redis://redis:6379/1
             bench set-config -g redis_socketio redis://redis:6379/2
-            grep -qxF open_practice sites/apps.txt || echo open_practice >> sites/apps.txt
+            printf "%s\n" frappe open_practice > sites/apps.txt
             mkdir -p sites/assets
             ln -s /home/frappe/frappe-bench/apps/open_practice/src/open_practice/public sites/assets/open_practice
             bench new-site practicelab.localhost --mariadb-user-host-login-scope="%" \

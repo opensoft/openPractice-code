@@ -41,7 +41,7 @@ class QuickBooksTimeClient:
         self._timeout = timeout
         self._opener = build_opener(_NoRedirect)
 
-    def _request(self, resource, *, query=None, payload=None):
+    def _request(self, resource, *, query=None, payload=None, method=None):
         try:
             token = self._token_provider()
         except Exception:
@@ -56,7 +56,7 @@ class QuickBooksTimeClient:
         if payload is not None:
             headers["Content-Type"] = "application/json"
             body = json.dumps(payload).encode("utf-8")
-        request = Request(url, headers=headers, data=body)
+        request = Request(url, headers=headers, data=body, method=method)
         try:
             with self._opener.open(request, timeout=self._timeout) as response:
                 data = json.load(response)

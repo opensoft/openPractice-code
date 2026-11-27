@@ -168,3 +168,30 @@ python -m unittest -v open_practice.tests.test_quickbooks_time_adapter
 
 The tests use a loopback HTTP fixture with synthetic workforce records and
 exercise the same conformance checks as the openHR T-26 tests.
+
+### Run live T-12
+
+The live case requires a dedicated Intuit test account with QuickBooks Time
+v1 API access and approvals enabled. Its token must belong to a manager or
+administrator who can manage schedules and timecards and approve time.
+Use three existing synthetic staff with time tracking enabled and no
+deliverable notification contacts. [Time v1 authorization](https://tsheetsteam.github.io/api_docs/#authentication) ·
+[Time approval API](https://tsheetsteam.github.io/api_docs/#approving-time)
+
+Set `OPENPRACTICE_T12_TIME_TOKEN` from the test account's secure token source.
+Set `OPENPRACTICE_T12_CONFIG` to a JSON file with non-secret test settings.
+
+- `account` is the test account's `client_url` from Time v1.
+- `calendar_id` and `jobcode_id` select the synthetic schedule calendar and the active regular workforce job code.
+- `user_ids` lists the original RN, callout RN, and float RN IDs in that order.
+- `date` is a completed local test date with an empty 09:00–09:30 calendar window.
+- `time_zone` is the account's IANA time zone.
+
+The runner verifies the tenant and checks that approval will apply only to
+timecards from this run. It posts and reads the draft through the adapter,
+publishes the float in Time, records two synthetic timecards, and verifies
+the approved attendance. The provider records remain available for inspection.
+
+```powershell
+python -m unittest -v open_practice.tests.test_quickbooks_time_live
+```

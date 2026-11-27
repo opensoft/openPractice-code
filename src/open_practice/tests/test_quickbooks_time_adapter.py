@@ -2,9 +2,11 @@
 
 import json
 import socket
+from contextlib import redirect_stdout
 from dataclasses import replace
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Thread
@@ -19,6 +21,7 @@ from open_practice.staff_schedule_provider import OpenShiftRequest
 from open_practice.staffing_demand import calculate_demand, summarize_demand
 from open_practice.staffing_variance import TimeWindow, compare_staffing, rank_replacements
 from open_practice.tests.staff_provider_conformance import StaffingConformance, contract_validator, validate_provider_message
+from open_practice.tests.test_quickbooks_time_live import run_t12
 from open_practice.tests.test_staffing_demand import at, overlapping_procedures
 from open_practice.tests.test_staffing_variance import PROCEDURE_WINDOW, REPORTING_PERIOD, rn_callout_scenario
 
@@ -52,9 +55,13 @@ class SyntheticTimeAPI:
     def __init__(self):
         self.resources = {
             "users": {user: {"id": user, "active": True, "approved_to": "2026-11-25",
-                             "email": "synthetic-do-not-export@example.invalid"} for user in (11, 12, 13, 14)},
+                             "email": "synthetic-do-not-export@example.invalid",
+                             "permissions": {"time_tracking": True}} for user in (11, 12, 13, 14)},
             "schedule_events": {101: schedule_event(101, [11]), 102: schedule_event(102, [12])},
             "timesheets": {},
+            "current_user": {10: {"id": 10, "client_url": "synthetic-account", "permissions": {"admin": True}}},
+            "schedule_calendars": {20: {"id": 20, "name": "T-12 test calendar"}},
+            "jobcodes": {30: {"id": 30, "type": "regular", "active": True}},
             "time_off_request_entries": {},
         }
         self.bearer = "synthetic-intuit-token"
@@ -109,6 +116,17 @@ class SyntheticTimeAPI:
                     api.resources["users"][api.revoke_approval_on_timecard_read]["approved_to"] = "2026-11-25"
                     api.revoke_approval_on_timecard_read = None
                 records = list(api.resources[resource].items())
+                if "ids" in filters:
+                    ids = set(map(int, filters["ids"].split(",")))
+                    records = [(key, row) for key, row in records if key in ids]
+                if "user_ids" in filters:
+                    ids = set(map(int, filters["user_ids"].split(",")))
+                    records = [(key, row) for key, row in records if row.get("user_id") in ids]
+                if resource == "timesheets":
+                    records = [
+                        (key, row) for key, row in records
+                        if filters.get("start_date", "") <= row["date"] <= filters.get("end_date", "9999")
+                    ]
                 if resource == "schedule_events":
                     records = [
                         (key, row) for key, row in records
@@ -118,14 +136,17 @@ class SyntheticTimeAPI:
                         records = [(key, row) for key, row in records if row.get("active", True)]
                     if filters.get("draft") == "no":
                         records = [(key, row) for key, row in records if not row.get("draft", False)]
+                    if filters.get("draft") == "yes":
+                        records = [(key, row) for key, row in records if row.get("draft", False)]
                     if "start" in filters:
                         records = [(key, row) for key, row in records if row["start"] >= filters["start"]]
                 # Use small pages to exercise the v1 envelope and page cursor.
-                page = 1 if api.repeat_first_page else int(filters["page"])
+                page = 1 if api.repeat_first_page else int(filters.get("page", "1"))
                 start = (page - 1) * 2
                 page_rows = dict(records[start:start + 2])
                 more = start + 2 < len(records)
-                result = {"results": {resource: page_rows}}
+                result_key = "users" if resource == "current_user" else resource
+                result = {"results": {result_key: page_rows}}
                 if resource == "schedule_events":
                     result["results"]["more"] = more
                 else:
@@ -134,17 +155,24 @@ class SyntheticTimeAPI:
 
             def do_POST(self):
                 resource, _ = self.resource()
-                if resource != "schedule_events":
+                if resource not in ("schedule_events", "timesheets"):
                     return
                 payload = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-                api.posts.append(payload)
                 fields, = payload["data"]
+                if resource == "timesheets":
+                    timecard_id = 501 + len(api.resources[resource])
+                    row = {**fields, "id": timecard_id, "date": fields["start"][:10], "on_the_clock": False}
+                    api.resources[resource][timecard_id] = row
+                    self.send_json(200, {"results": {resource: {"1": {**row, "_status_code": 200}}}})
+                    return
+                api.posts.append(payload)
                 event_id = 900 + len(api.posts)
                 if api.post_mode == "rejected":
                     self.send_json(200, {"results": {"schedule_events": {"1": {"_status_code": 403}}}})
                     return
-                row = {**fields, "id": event_id, "unassigned": True}
-                del row["assigned_user_ids"]
+                row = {**fields, "id": event_id, "unassigned": not fields["assigned_user_ids"]}
+                if row["unassigned"]:
+                    del row["assigned_user_ids"]
                 if api.post_mode != "drop_before_commit":
                     api.resources[resource][event_id] = row
                 if api.post_mode.startswith("drop_"):
@@ -154,6 +182,18 @@ class SyntheticTimeAPI:
                 self.send_json(200, {
                     "results": {"schedule_events": {"1": {**row, "_status_code": 200}}},
                 })
+
+            def do_PUT(self):
+                resource, _ = self.resource()
+                if resource not in ("schedule_events", "users"):
+                    return
+                payload = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                fields, = payload["data"]
+                row = api.resources[resource][fields["id"]]
+                row.update(fields)
+                if "assigned_user_ids" in fields:
+                    row["unassigned"] = not fields["assigned_user_ids"]
+                self.send_json(200, {"results": {resource: {"1": {**row, "_status_code": 200}}}})
 
         return Handler
 
@@ -194,6 +234,28 @@ class QuickBooksTimeConformanceTest(TestCase):
 
     def request(self):
         return OpenShiftRequest(uuid4().hex, "Denver", "RN", "procedure-qualified", PROCEDURE_WINDOW, 1)
+
+    def test_live_t12_runner_rehearses_provider_writes_and_readbacks(self):
+        day = datetime.now(timezone.utc).date() - timedelta(days=1)
+        self.api.resources["schedule_events"].clear()
+        for user_id in (11, 12, 13):
+            self.api.resources["users"][user_id]["approved_to"] = (day - timedelta(days=1)).isoformat()
+        config = {"account": "synthetic-account", "calendar_id": 20, "jobcode_id": 30,
+                  "user_ids": [11, 12, 13], "date": day.isoformat(), "time_zone": "UTC"}
+        history = self.history_path.with_name("t12-rehearsal.sqlite3")
+        with self.assertRaisesRegex(QuickBooksTimeError, "named test account"):
+            run_t12(self, self.client, {**config, "account": "different-account"}, history)
+        existing = datetime.combine(day, datetime.min.time(), timezone.utc)
+        self.api.resources["timesheets"][799] = timesheet(799, 11, existing, existing + timedelta(minutes=10))
+        with self.assertRaisesRegex(QuickBooksTimeError, "existing timecards"):
+            run_t12(self, self.client, config, history)
+        del self.api.resources["timesheets"][799]
+        self.assertTrue(all(method == "GET" for method, _, _ in self.api.calls))
+        with redirect_stdout(StringIO()) as progress:
+            run_t12(self, self.client, config, history)
+        self.assertIn("posted and assigned draft both stayed pending", progress.getvalue())
+        self.assertIn("approved 09:12 arrival left two RN-minutes short", progress.getvalue())
+
 
     def test_rn_callout_and_approved_attendance_match_shared_t26(self):
         demand = calculate_demand(overlapping_procedures())

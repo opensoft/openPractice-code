@@ -55,8 +55,12 @@ jobs:
             bench --site practicelab.localhost execute open_practice.practicelab_smoke.create_user
             bench use practicelab.localhost
           '
-          docker exec -d practice bench --site practicelab.localhost serve --port 8000 --noreload
-          curl -fsS --retry 15 --retry-connrefused --retry-delay 2 "$PRACTICELAB_URL/api/method/ping"
+          docker exec -d practice bash -c \
+            'bench --site practicelab.localhost serve --port 8000 --noreload >/tmp/frappe-http.log 2>&1'
+          if ! curl -fsS --retry 15 --retry-all-errors --retry-delay 2 "$PRACTICELAB_URL/api/method/ping"; then
+            docker exec practice tail -60 /tmp/frappe-http.log
+            exit 1
+          fi
       - name: Sign in, book, and complete a session
         run: |
           python -m pip install playwright

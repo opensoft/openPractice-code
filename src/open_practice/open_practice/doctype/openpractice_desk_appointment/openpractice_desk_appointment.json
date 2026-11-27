@@ -1,0 +1,84 @@
+{
+  "doctype": "DocType",
+  "name": "OpenPractice Desk Appointment",
+  "module": "Open Practice",
+  "engine": "InnoDB",
+  "autoname": "hash",
+  "allow_rename": 0,
+  "track_changes": 0,
+  "field_order": [
+    "patient",
+    "location",
+    "mode",
+    "day",
+    "slot",
+    "group_name",
+    "roster",
+    "events",
+    "stage"
+  ],
+  "fields": [
+    {
+      "fieldname": "patient",
+      "label": "Patient",
+      "fieldtype": "Link",
+      "options": "OpenPractice Desk Patient"
+    },
+    {
+      "fieldname": "location",
+      "label": "Location",
+      "fieldtype": "Data",
+      "reqd": 1
+    },
+    {
+      "fieldname": "mode",
+      "label": "Mode",
+      "fieldtype": "Data",
+      "reqd": 1
+    },
+    {
+      "fieldname": "day",
+      "label": "Day",
+      "fieldtype": "Date",
+      "reqd": 1,
+      "search_index": 1
+    },
+    {
+      "fieldname": "slot",
+      "label": "Slot",
+      "fieldtype": "Data",
+      "reqd": 1
+    },
+    {
+      "fieldname": "group_name",
+      "label": "Group Name",
+      "fieldtype": "Data"
+    },
+    {
+      "fieldname": "roster",
+      "label": "Roster",
+      "fieldtype": "Long Text",
+      "reqd": 1
+    },
+    {
+      "fieldname": "events",
+      "label": "Events",
+      "fieldtype": "Long Text",
+      "reqd": 1
+    },
+    {
+      "fieldname": "stage",
+      "label": "Stage",
+      "fieldtype": "Select",
+      "reqd": 1,
+      "default": "scheduled",
+      "options": "scheduled\navailable\nready\nstarted\nended\nwrapped"
+    }
+  ],
+  "permissions": [
+    {
+      "role": "System Manager",
+      "read": 1
+    }
+  ]
+}

@@ -1,0 +1,110 @@
+{
+  "doctype": "DocType",
+  "name": "OpenPractice Desk Facility",
+  "module": "Open Practice",
+  "engine": "InnoDB",
+  "autoname": "hash",
+  "allow_rename": 0,
+  "track_changes": 0,
+  "field_order": [
+    "label",
+    "kind",
+    "facility_type",
+    "hospital_pos_code",
+    "archived",
+    "contract_status",
+    "contract_pharmacy_reference",
+    "legal_name",
+    "npi",
+    "street_address",
+    "address_line_2",
+    "city",
+    "region",
+    "postal_code"
+  ],
+  "fields": [
+    {
+      "fieldname": "label",
+      "label": "Label",
+      "fieldtype": "Data",
+      "reqd": 1,
+      "unique": 1,
+      "length": 255
+    },
+    {
+      "fieldname": "kind",
+      "label": "Kind",
+      "fieldtype": "Data",
+      "reqd": 1
+    },
+    {
+      "fieldname": "facility_type",
+      "label": "Facility Type",
+      "fieldtype": "Data"
+    },
+    {
+      "fieldname": "hospital_pos_code",
+      "label": "Hospital Pos Code",
+      "fieldtype": "Data"
+    },
+    {
+      "fieldname": "archived",
+      "label": "Archived",
+      "fieldtype": "Check",
+      "default": "0"
+    },
+    {
+      "fieldname": "contract_status",
+      "label": "Contract Status",
+      "fieldtype": "Data"
+    },
+    {
+      "fieldname": "contract_pharmacy_reference",
+      "label": "Contract Pharmacy Reference",
+      "fieldtype": "Link",
+      "options": "OpenPractice Desk Facility"
+    },
+    {
+      "fieldname": "legal_name",
+      "label": "Legal Name",
+      "fieldtype": "Data",
+      "length": 255
+    },
+    {
+      "fieldname": "npi",
+      "label": "Npi",
+      "fieldtype": "Data"
+    },
+    {
+      "fieldname": "street_address",
+      "label": "Street Address",
+      "fieldtype": "Data"
+    },
+    {
+      "fieldname": "address_line_2",
+      "label": "Address Line 2",
+      "fieldtype": "Data"
+    },
+    {
+      "fieldname": "city",
+      "label": "City",
+      "fieldtype": "Data"
+    },
+    {
+      "fieldname": "region",
+      "label": "Region",
+      "fieldtype": "Data"
+    },
+    {
+      "fieldname": "postal_code",
+      "label": "Postal Code",
+      "fieldtype": "Data"
+    }
+  ],
+  "permissions": [
+    {
+      "role": "System Manager",
+      "read": 1
+    }
+  ]
+}

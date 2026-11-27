@@ -1,0 +1,65 @@
+{
+  "doctype": "DocType",
+  "name": "OpenPractice Desk Home",
+  "module": "Open Practice",
+  "engine": "InnoDB",
+  "autoname": "hash",
+  "allow_rename": 0,
+  "track_changes": 0,
+  "field_order": [
+    "patient",
+    "living_arrangement",
+    "street_address",
+    "address_line_2",
+    "city",
+    "region",
+    "postal_code"
+  ],
+  "fields": [
+    {
+      "fieldname": "patient",
+      "label": "Patient",
+      "fieldtype": "Link",
+      "options": "OpenPractice Desk Patient",
+      "reqd": 1,
+      "search_index": 1
+    },
+    {
+      "fieldname": "living_arrangement",
+      "label": "Living Arrangement",
+      "fieldtype": "Data",
+      "reqd": 1
+    },
+    {
+      "fieldname": "street_address",
+      "label": "Street Address",
+      "fieldtype": "Data"
+    },
+    {
+      "fieldname": "address_line_2",
+      "label": "Address Line 2",
+      "fieldtype": "Data"
+    },
+    {
+      "fieldname": "city",
+      "label": "City",
+      "fieldtype": "Data"
+    },
+    {
+      "fieldname": "region",
+      "label": "Region",
+      "fieldtype": "Data"
+    },
+    {
+      "fieldname": "postal_code",
+      "label": "Postal Code",
+      "fieldtype": "Data"
+    }
+  ],
+  "permissions": [
+    {
+      "role": "System Manager",
+      "read": 1
+    }
+  ]
+}

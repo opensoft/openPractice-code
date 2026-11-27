@@ -26,6 +26,30 @@ code in one repository is reviewed identically.
 
 Topic: `xf-project-openpractice`.
 
+## PracticeLab on Frappe
+
+The authenticated Session Desk runs at `/practice` on a dedicated Frappe
+v15 QA site. Enable it before installing the app.
+
+```sh
+bench --site practicelab.opensoft.dev set-config -p open_practice_practicelab 1
+bench --site practicelab.opensoft.dev install-app open_practice
+bench build --app open_practice
+```
+
+Installation seeds four synthetic patients and a demo clinic in the Frappe
+site database. Add a Frappe Website User with the **OpenPractice Scheduler**
+role for each tester. Site signup is disabled when the rehearsal is enabled.
+The scheduler records who booked the appointment and who advanced each stage.
+The host must serve Frappe with HTTPS and its normal session and CSRF handling.
+
+Use the browser acceptance script in `deploy/practicelab/smoke.py` with
+`PRACTICELAB_URL`, `PRACTICELAB_SMOKE_USER`, and
+`PRACTICELAB_SMOKE_PASSWORD` in the process environment. Run it against a
+fresh synthetic site. It signs in as the scheduler, books a visit, verifies
+each transition through **Ready for billing**, and reads the saved state
+after reloading the page.
+
 ## ClaimLab sandbox
 
 Upload a synthetic 837P with `ISA15=T` to see simulated TA1, 999, and
@@ -149,3 +173,45 @@ Run the Frappe lifecycle test on the disposable site.
 bench --site test.localhost set-config --parse allow_tests 1
 bench --site test.localhost run-tests --doctype 'OpenPractice Claim Batch'
 ```
+## Two-phase MVP
+
+**Phase 1** is a local, single-operator rehearsal. Enter a synthetic patient's
+first and last name, with date of birth and a chart reference when useful, or
+pick a saved patient. Book an in-person or telemedicine visit at an office or
+clinic, a facility, or a patient's home. For a group visit, add patients to one
+appointment and expand its roster to view patient details and enter primary
+insurance. The schedule uses the group label and tracks session progress for
+the whole group. One screen records arrival or session availability, patient
+readiness, session start, session end and wrap-up. Session end signals the
+room or call can be released and administrative handoff can begin. Wrap-up
+requires explicit confirmation that the clinician finished charting and marks
+the session ready for billing. The chart stays in the charting system.
+
+The schedule uses Mountain Time. The session desk uses the Python standard
+library and stores bookings, progress timestamps and facility records in a local
+SQLite file. From this worktree in PowerShell, run the command below.
+
+```powershell
+$env:PYTHONPATH = Join-Path (Get-Location) 'src'
+python -m open_practice.session_desk --database (Join-Path $env:LOCALAPPDATA 'openPractice\session-desk.sqlite3')
+```
+
+Open `http://127.0.0.1:17824/` on the same machine. When booking, select a location
+type, then choose a saved location or add one. Adding an office or facility
+opens **Facilities**. Entering the 10-digit NPI looks up an organization in
+the CMS NPI Registry and suggests its name, primary practice address, and
+facility type when the registry has a recognized classification. Review or
+edit the details before saving. Saving returns to the appointment with the
+new facility selected. For a patient's home, record the address and living
+arrangement in the appointment form. Saved homes appear for their associated
+patient.
+
+Open **Facilities** to search by name, NPI or address and filter by type or
+status. Select a facility to view its information, edit it, or archive it.
+Archived facilities stay in appointment history and can be restored from the
+directory.
+
+**Phase 2** adds the live chart completion and billing handoff, shared access
+for staff, and the agreed administrative and clinical boundaries for telemedicine
+preparation. The existing Colorado claim and staffing drafts can attach after
+the basic appointment-to-wrap-up workflow is validated.

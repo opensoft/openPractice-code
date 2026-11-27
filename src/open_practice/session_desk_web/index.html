@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Session desk · openPractice</title>
+  <link rel="stylesheet" href="/desk.css">
+  <script src="/desk.js" defer></script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="shell header-inner">
+      <a class="wordmark" href="/">open<span>Practice</span></a>
+      <span class="environment">Synthetic patients only</span>
+    </div>
+  </header>
+
+  <main class="shell">
+    <div class="heading">
+      <div>
+        <h1>Session desk</h1>
+        <p id="schedule-date"></p>
+      </div>
+      <div class="heading-actions">
+        <button type="button" id="manage-facilities" disabled>Facilities</button>
+        <button type="button" class="primary" id="new-appointment" disabled>＋ New appointment</button>
+      </div>
+    </div>
+    <p id="desk-error" class="error" role="alert" hidden></p>
+
+    <div class="workspace">
+      <section class="panel agenda" aria-labelledby="agenda-heading">
+        <div class="panel-heading">
+          <h2 id="agenda-heading">Appointments</h2>
+          <input id="view-day" type="date" aria-label="Schedule date">
+        </div>
+        <div id="appointments"></div>
+      </section>
+      <section class="panel session" id="session" aria-label="Selected appointment"></section>
+    </div>
+    <p class="timezone">Times shown in Mountain Time</p>
+    <p class="sr-only" id="notice" role="status"></p>
+  </main>
+
+  <dialog id="booking-dialog" aria-labelledby="booking-title">
+    <form id="booking-form">
+      <h2 id="booking-title">New appointment</h2>
+      <label><span id="appointment-type-label">Appointment type</span>
+        <select name="appointment_type" aria-labelledby="appointment-type-label" autofocus>
+          <option value="individual">Individual visit</option>
+          <option value="group">Group visit</option>
+        </select>
+      </label>
+      <fieldset id="individual-patient-fields" class="field-group">
+        <label><span id="booking-patient-label">Patient</span>
+          <select name="patient" aria-labelledby="booking-patient-label" required></select>
+        </label>
+      </fieldset>
+      <fieldset id="group-patient-fields" class="detail-fields" disabled hidden>
+        <legend>Group roster</legend>
+        <label>Group name (optional) <input name="group_name" type="text" maxlength="120"></label>
+        <ul id="group-roster-draft" class="roster-draft" aria-label="Patients added to the group" hidden></ul>
+        <label><span id="group-patient-label">Choose a patient to add</span>
+          <select id="group-patient-select" aria-labelledby="group-patient-label"></select>
+        </label>
+      </fieldset>
+      <fieldset id="new-patient-fields" class="patient-fields" disabled hidden>
+        <legend>New synthetic patient</legend>
+        <div class="form-row">
+          <label>First name <input name="first_name" type="text" maxlength="80" autocomplete="off" required></label>
+          <label>Last name <input name="last_name" type="text" maxlength="80" autocomplete="off" required></label>
+        </div>
+        <div class="form-row">
+          <label>Date of birth (optional) <input name="date_of_birth" type="date"></label>
+          <label>Chart reference (optional) <input name="chart_reference" type="text" maxlength="80" autocomplete="off"></label>
+        </div>
+        <details id="booking-insurance" class="booking-insurance">
+          <summary>Primary insurance (optional)</summary>
+          <div id="booking-insurance-fields"></div>
+        </details>
+      </fieldset>
+      <button type="button" id="add-group-patient" class="add-roster-patient" hidden disabled>Add to group</button>
+      <div class="form-row visit-options">
+        <label><span id="location-type-label">Location type</span>
+          <select name="location_kind" aria-labelledby="location-type-label" required>
+            <option value="clinic">Office / clinic</option>
+            <option value="alf">Facility</option>
+            <option value="home">In home</option>
+          </select>
+        </label>
+        <label>Visit mode
+          <select name="mode" required>
+            <option value="in-person">In person</option>
+            <option value="telemedicine">Telemedicine</option>
+          </select>
+        </label>
+      </div>
+      <fieldset id="group-home-fields" class="field-group" disabled hidden>
+        <label><span id="group-home-label">Patient whose home will host the visit</span>
+          <select name="home_patient" aria-labelledby="group-home-label" required></select>
+        </label>
+      </fieldset>
+      <label><span id="appointment-location-label">Location</span>
+        <select name="location" aria-labelledby="appointment-location-label" required></select>
+      </label>
+      <fieldset id="new-location-fields" class="detail-fields" disabled hidden>
+        <legend>New home</legend>
+        <label><span id="living-arrangement-label">Living arrangement</span>
+          <select name="living_arrangement" aria-labelledby="living-arrangement-label" required>
+            <option value="">Choose living arrangement</option>
+            <option value="alone">Lives alone</option>
+            <option value="with_caregiver">Lives with a caregiver</option>
+          </select>
+        </label>
+        <div id="booking-address-fields"></div>
+      </fieldset>
+      <div class="form-row">
+        <label>Date <input name="day" type="date" required></label>
+        <label>Time <input name="time" type="time" value="09:00" required></label>
+      </div>
+      <p id="booking-error" class="error" role="alert" hidden></p>
+      <div class="form-actions">
+        <button type="button" id="cancel-booking">Cancel</button>
+        <button type="submit" class="primary">Book appointment</button>
+      </div>
+    </form>
+  </dialog>
+  <dialog id="insurance-dialog" aria-labelledby="insurance-title">
+    <form id="insurance-form">
+      <h2 id="insurance-title">Primary insurance</h2>
+      <p id="insurance-patient" class="session-description"></p>
+      <div id="insurance-edit-fields"></div>
+      <p id="insurance-error" class="error" role="alert" hidden></p>
+      <div class="form-actions">
+        <button type="button" id="cancel-insurance">Cancel</button>
+        <button type="submit" class="primary">Save insurance</button>
+      </div>
+    </form>
+  </dialog>
+  <template id="insurance-fields-template">
+    <label>Insurance payer <input name="payer_name" type="text" maxlength="120" autocomplete="off"></label>
+    <div class="form-row">
+      <label>Member ID <input name="member_id" type="text" maxlength="80" autocomplete="off"></label>
+      <label>Group number (optional) <input name="group_number" type="text" maxlength="80" autocomplete="off"></label>
+    </div>
+    <div class="form-row">
+      <label>Plan name (optional) <input name="plan_name" type="text" maxlength="120" autocomplete="off"></label>
+      <label>Payer ID (optional) <input name="payer_id" type="text" maxlength="40" autocomplete="off"></label>
+    </div>
+  </template>
+  <dialog id="facility-dialog" aria-labelledby="facility-title">
+    <div class="facility-heading">
+      <h2 id="facility-title" tabindex="-1">Facilities</h2>
+      <button type="button" id="close-facilities">Close</button>
+    </div>
+    <section id="facility-list-view" aria-label="Facility directory">
+      <div class="facility-toolbar">
+        <label>Search facilities <input id="facility-search" type="search" autocomplete="off"></label>
+        <button type="button" id="add-facility" class="primary">Add facility</button>
+      </div>
+      <div class="form-row">
+        <label>Filter by type
+          <select id="facility-filter-type" aria-label="Filter by type">
+            <option value="">All types</option>
+            <option value="unclassified">Unclassified</option>
+          </select>
+        </label>
+        <label>Status
+          <select id="facility-filter-status" aria-label="Status">
+            <option value="active">Active</option>
+            <option value="archived">Archived</option>
+            <option value="all">All statuses</option>
+          </select>
+        </label>
+      </div>
+      <ul id="facility-list" class="facility-list" aria-label="Facilities"></ul>
+      <p id="facility-list-empty" class="facility-empty" hidden>No facilities match these filters.</p>
+    </section>
+    <section id="facility-detail-view" aria-label="Facility details" hidden>
+      <div class="facility-detail-actions">
+        <button type="button" id="facility-back">Back to facilities</button>
+        <button type="button" id="edit-facility" class="primary">Edit facility</button>
+        <button type="button" id="change-facility-status">Archive facility</button>
+      </div>
+      <p id="facility-detail-error" class="error" role="alert" hidden></p>
+      <dl id="facility-details" class="facility-details"></dl>
+    </section>
+    <form id="facility-form" hidden>
+      <input type="hidden" name="reference">
+      <div class="facility-toolbar">
+        <label>NPI for this location
+          <input name="npi" type="text" inputmode="numeric" pattern="[0-9]{10}" maxlength="10"
+            autocomplete="off" aria-describedby="facility-npi-status">
+        </label>
+        <button type="button" id="lookup-facility-npi" aria-controls="facility-npi-results">Lookup</button>
+      </div>
+      <div class="npi-feedback">
+        <p id="facility-npi-status" role="status" hidden></p>
+        <ul id="facility-npi-results" class="facility-list" aria-label="NPI Registry matches" hidden></ul>
+        <button type="button" id="apply-registry-details" hidden>Use registry details</button>
+      </div>
+      <label><span id="facility-type-label">Facility type</span>
+        <select name="facility_type" aria-labelledby="facility-type-label">
+          <option value="">Unclassified</option>
+        </select>
+      </label>
+      <fieldset id="hospital-setting-fields" class="field-group" disabled hidden>
+        <label>Hospital setting
+          <select name="pos_code">
+            <option value="">Not recorded</option>
+          </select>
+        </label>
+      </fieldset>
+      <div id="facility-site-fields"></div>
+      <div id="facility-address-fields"></div>
+      <fieldset id="facility-contract-fields" class="field-group" disabled hidden></fieldset>
+      <p id="facility-error" class="error" role="alert" hidden></p>
+      <div class="form-actions">
+        <button type="button" id="cancel-facility">Cancel</button>
+        <button type="submit" class="primary">Save facility</button>
+      </div>
+    </form>
+  </dialog>
+  <template id="site-fields-template">
+    <label>Location name <input name="name" type="text" maxlength="255" required></label>
+    <label>Legal operating name <input name="legal_name" type="text" maxlength="255"></label>
+  </template>
+  <template id="address-fields-template">
+    <label>Street address <input name="street_address" type="text" maxlength="120" required></label>
+    <label>Address line 2 (optional) <input name="address_line_2" type="text" maxlength="80"></label>
+    <label>City <input name="city" type="text" maxlength="80" required></label>
+    <div class="form-row">
+      <label>State or province <input name="region" type="text" maxlength="60" required></label>
+      <label>ZIP or postal code <input name="postal_code" type="text" maxlength="15" required></label>
+    </div>
+  </template>
+  <template id="contract-fields-template">
+    <label>Pharmacy contract with this facility
+      <select name="contract_status" aria-label="Pharmacy contract with this facility">
+        <option value="unknown">Unknown</option>
+        <option value="no_contract">No contract</option>
+        <option value="contracted">Contracted</option>
+      </select>
+    </label>
+    <fieldset id="contracted-pharmacy-fields" class="field-group" disabled hidden>
+      <p id="previous-contract-pharmacy" class="session-description" hidden></p>
+      <label>Search pharmacies by name or NPI
+        <input id="contract-pharmacy-search" type="search" autocomplete="off">
+      </label>
+      <label><span id="contract-pharmacy-label">Contracted pharmacy</span>
+        <select name="contract_pharmacy_reference" aria-labelledby="contract-pharmacy-label"></select>
+      </label>
+      <button id="add-contract-pharmacy" type="button">Add pharmacy</button>
+    </fieldset>
+  </template>
+</body>
+</html>

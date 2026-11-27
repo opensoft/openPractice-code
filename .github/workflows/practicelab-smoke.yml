@@ -1,0 +1,64 @@
+name: PracticeLab Frappe smoke
+
+on:
+  push:
+    branches: [draft/practicelab-frappe]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-browser-acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PRACTICELAB_URL: http://127.0.0.1:8000
+      PRACTICELAB_SMOKE_USER: scheduler@example.invalid
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build PracticeLab test image
+        run: docker build -f deploy/practicelab/Dockerfile -t practicelab:smoke .
+      - name: Start a disposable Frappe site
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PRACTICELAB_DB_ROOT_PASSWORD="$(openssl rand -hex 20)"
+          export PRACTICELAB_SMOKE_PASSWORD="Aa1!$(openssl rand -hex 20)"
+          echo "::add-mask::$PRACTICELAB_DB_ROOT_PASSWORD"
+          echo "::add-mask::$PRACTICELAB_SMOKE_PASSWORD"
+          echo "PRACTICELAB_SMOKE_PASSWORD=$PRACTICELAB_SMOKE_PASSWORD" >> "$GITHUB_ENV"
+          docker network create practicelab
+          docker run -d --name redis --network practicelab redis:6.2-alpine
+          docker run -d --name db --network practicelab \
+            -e MARIADB_ROOT_PASSWORD="$PRACTICELAB_DB_ROOT_PASSWORD" \
+            mariadb:10.6 --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+          docker run -d --name practice --network practicelab -p 127.0.0.1:8000:8000 \
+            -e PRACTICELAB_SMOKE_USER -e PRACTICELAB_SMOKE_PASSWORD -e PRACTICELAB_DB_ROOT_PASSWORD \
+            practicelab:smoke sleep infinity
+          docker exec practice bash -euc '
+            for attempt in {1..40}; do
+              if mariadb --host=db -uroot -p"$PRACTICELAB_DB_ROOT_PASSWORD" -e "SELECT 1" >/dev/null 2>&1; then break; fi
+              sleep 2
+            done
+            bench set-config -g db_host db
+            bench set-config -g redis_cache redis://redis:6379/0
+            bench set-config -g redis_queue redis://redis:6379/1
+            bench set-config -g redis_socketio redis://redis:6379/2
+            grep -qxF open_practice sites/apps.txt || echo open_practice >> sites/apps.txt
+            mkdir -p sites/assets
+            ln -s /home/frappe/frappe-bench/apps/open_practice/src/open_practice/public sites/assets/open_practice
+            bench new-site practicelab.localhost --mariadb-user-host-login-scope="%" \
+              --db-root-password "$PRACTICELAB_DB_ROOT_PASSWORD" --admin-password "$PRACTICELAB_SMOKE_PASSWORD"
+            bench --site practicelab.localhost set-config -p open_practice_practicelab 1
+            bench --site practicelab.localhost install-app open_practice
+            bench --site practicelab.localhost execute open_practice.practicelab_smoke.create_user
+            bench use practicelab.localhost
+          '
+          docker exec -d practice bench --site practicelab.localhost serve --port 8000 --noreload
+          curl -fsS --retry 15 --retry-connrefused --retry-delay 2 "$PRACTICELAB_URL/api/method/ping"
+      - name: Sign in, book, and complete a session
+        run: |
+          python -m pip install playwright
+          python -m playwright install --with-deps chromium
+          python deploy/practicelab/smoke.py

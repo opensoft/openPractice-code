@@ -5,6 +5,11 @@ import frappe
 from open_practice.test_subscriber_roster import load_approved_synthetic_roster
 
 
+def require_install_site():
+    if frappe.conf.get("open_practice_practicelab") != 1:
+        require_test_site()
+
+
 def require_test_site():
     if frappe.conf.get("open_practice_novitas_test") != 1:
         frappe.throw("OpenPractice claims are enabled only on a configured Novitas test site.")

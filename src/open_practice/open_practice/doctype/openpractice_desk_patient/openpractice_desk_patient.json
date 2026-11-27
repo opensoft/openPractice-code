@@ -1,0 +1,76 @@
+{
+  "doctype": "DocType",
+  "name": "OpenPractice Desk Patient",
+  "module": "Open Practice",
+  "engine": "InnoDB",
+  "autoname": "hash",
+  "allow_rename": 0,
+  "track_changes": 0,
+  "field_order": [
+    "first_name",
+    "last_name",
+    "date_of_birth",
+    "chart_reference",
+    "payer_name",
+    "payer_id",
+    "plan_name",
+    "member_id",
+    "group_number"
+  ],
+  "fields": [
+    {
+      "fieldname": "first_name",
+      "label": "First Name",
+      "fieldtype": "Data",
+      "reqd": 1
+    },
+    {
+      "fieldname": "last_name",
+      "label": "Last Name",
+      "fieldtype": "Data",
+      "reqd": 1
+    },
+    {
+      "fieldname": "date_of_birth",
+      "label": "Date Of Birth",
+      "fieldtype": "Date"
+    },
+    {
+      "fieldname": "chart_reference",
+      "label": "Chart Reference",
+      "fieldtype": "Data",
+      "search_index": 1
+    },
+    {
+      "fieldname": "payer_name",
+      "label": "Payer Name",
+      "fieldtype": "Data"
+    },
+    {
+      "fieldname": "payer_id",
+      "label": "Payer Id",
+      "fieldtype": "Data"
+    },
+    {
+      "fieldname": "plan_name",
+      "label": "Plan Name",
+      "fieldtype": "Data"
+    },
+    {
+      "fieldname": "member_id",
+      "label": "Member Id",
+      "fieldtype": "Data"
+    },
+    {
+      "fieldname": "group_number",
+      "label": "Group Number",
+      "fieldtype": "Data"
+    }
+  ],
+  "permissions": [
+    {
+      "role": "System Manager",
+      "read": 1
+    }
+  ]
+}

@@ -15,6 +15,7 @@ jobs:
     env:
       PRACTICELAB_URL: http://127.0.0.1:8000
       PRACTICELAB_SMOKE_USER: scheduler@example.invalid
+      PRACTICELAB_SMOKE_CHECK_DESK: "1"
       PRACTICELAB_OPENHR_TEST_SITE_NAME: openhr.localhost
     steps:
       - uses: actions/checkout@v4
@@ -53,6 +54,8 @@ jobs:
               --db-root-password "$PRACTICELAB_DB_ROOT_PASSWORD" --admin-password "$PRACTICELAB_SMOKE_PASSWORD"
             bench --site practicelab.localhost set-config -p open_practice_practicelab 1
             bench --site practicelab.localhost install-app open_practice
+            bench --site practicelab.localhost execute frappe.desk.page.setup_wizard.setup_wizard.setup_complete \
+              --args "[{\"language\":\"English\",\"country\":\"United States\",\"timezone\":\"America/Denver\",\"currency\":\"USD\"}]"
             bench --site practicelab.localhost execute open_practice.practicelab_smoke.create_user
             bench use practicelab.localhost
           '

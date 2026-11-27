@@ -55,6 +55,29 @@ def seed():
     frappe.db.set_single_value("Website Settings", "disable_signup", 1)
 
 
+def seed_workspace():
+    """Create the default Session Desk workspace after the scheduler role is installed."""
+    if not enabled() or frappe.db.exists("Workspace", "openPractice"):
+        return
+
+    label = "Session Desk"
+    last_sequence = frappe.db.get_value("Workspace", {}, "max(sequence_id)") or 0
+    frappe.get_doc({
+        "doctype": "Workspace",
+        "label": "openPractice",
+        "title": "openPractice",
+        "module": "Open Practice",
+        "public": 1,
+        "icon": "calendar",
+        "sequence_id": last_sequence + 1,
+        "roles": [{"role": ROLE}],
+        "shortcuts": [{"label": label, "type": "URL", "url": "/practice"}],
+        "content": json.dumps([
+            {"id": "sessiondesk", "type": "shortcut", "data": {"shortcut_name": label, "col": 4}},
+        ]),
+    }).insert()
+
+
 def _insert(doctype, reference, **fields):
     # Endpoint writes are role-checked and validated. Raw resource writes stay restricted.
     return frappe.get_doc({"doctype": doctype, **fields}).insert(

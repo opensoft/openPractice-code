@@ -12,4 +12,8 @@ fixtures = [
 ]
 before_install = "open_practice.site.require_install_site"
 after_install = "open_practice.frappe_session_desk.seed"
-after_migrate = "open_practice.frappe_session_desk.seed"
+after_sync = "open_practice.frappe_session_desk.seed_workspace"
+after_migrate = [
+    "open_practice.frappe_session_desk.seed",
+    "open_practice.frappe_session_desk.seed_workspace",
+]

@@ -12,18 +12,41 @@ PASSWORD = os.environ["PRACTICELAB_SMOKE_PASSWORD"]
 API = "/api/method/open_practice.frappe_session_desk.request"
 
 
+def sign_in(page, user):
+    page.locator("#login_email").fill(user)
+    page.locator("#login_password").fill(PASSWORD)
+    page.locator(".btn-login").click()
+
+
+def check_desk_workspace(browser):
+    page = browser.new_page()
+    try:
+        page.goto(BASE + "/app")
+        expect(page).to_have_url(re.compile("/login"))
+        sign_in(page, "Administrator")
+        expect(page).to_have_url(re.compile("/app(?:[/?#]|$)"), timeout=15_000)
+        page.get_by_role("link", name="openPractice", exact=True).click(timeout=15_000)
+        expect(page).to_have_url(BASE + "/app/openpractice")
+        page.get_by_role("link", name="Session Desk", exact=True).click()
+        expect(page).to_have_url(BASE + "/practice")
+        expect(page.get_by_role("button", name="New appointment")).to_be_enabled()
+        print("Passed the installed openPractice workspace and Session Desk shortcut.")
+    finally:
+        page.close()
+
+
 def main():
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
+        if os.environ.get("PRACTICELAB_SMOKE_CHECK_DESK") == "1":
+            check_desk_workspace(browser)
         page = browser.new_page()
         page.goto(BASE + "/practice")
         expect(page).to_have_url(re.compile("/login"))
         denied = page.request.get(BASE + API, params={"route": "/api/patients"})
         if denied.status not in (401, 403):
             raise AssertionError(f"Anonymous API access should be denied, got HTTP {denied.status}")
-        page.locator("#login_email").fill(EMAIL)
-        page.locator("#login_password").fill(PASSWORD)
-        page.locator(".btn-login").click()
+        sign_in(page, EMAIL)
         expect(page).to_have_url(re.compile("/practice$"), timeout=15_000)
 
         page.get_by_role("button", name="New appointment").click()

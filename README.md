@@ -40,7 +40,11 @@ bench build --app open_practice
 Installation seeds four synthetic patients and a demo clinic in the Frappe
 site database. Add a Frappe Website User with the **OpenPractice Scheduler**
 role for each tester. Site signup is disabled when the rehearsal is enabled.
-The scheduler records who booked the appointment and who advanced each stage.
+Install and migration add the **openPractice** workspace and its **Session
+Desk** shortcut on PracticeLab-enabled sites. Once Frappe site setup is
+complete, Desk users with the **OpenPractice Scheduler** role can open the
+shortcut from the sidebar. The scheduler records who booked the appointment
+and who advanced each stage.
 The host must serve Frappe with HTTPS and its normal session and CSRF handling.
 
 Use the browser acceptance script in `deploy/practicelab/smoke.py` with

@@ -62,8 +62,7 @@ once with `OPENHR_T26_SETUP_KEY` and `OPENHR_T26_SETUP_SECRET` for a test-site
 administrator. Assign the test users their roles after setup. The fixture
 writes uniquely scoped synthetic roster, coverage and attendance records. It
 submits the HR projections directly using the test manager's permissions.
-Automated projection from native HRMS scheduling and attendance is separate
-from this adapter slice.
+The native-record acceptance case below exercises the automatic projection.
 
 From this checkout in PowerShell, run the command below.
 
@@ -74,3 +73,34 @@ python -m unittest discover -s src/open_practice/tests -v
 
 The live T-26 case is reported separately as
 `test_t26_against_openhr_test_site` and is skipped when no URL is configured.
+
+### Connect native openHR scheduling
+
+Install the `integrations/openhr_ext` companion app in the openHR bench after
+provisioning the three scheduling DocTypes. Copy the app directory to
+`apps/openhr_ext`, install it in the bench Python environment with
+`./env/bin/python -m pip install --no-deps -e apps/openhr_ext`, and add
+`openhr_ext` to `sites/apps.txt`. Run `bench --site <site> install-app openhr_ext`.
+
+In openHR, an HR Manager creates an **OpenPractice Native Roster** for one
+location and work date. Its worker mapping is keyed by native Employee ID.
+Each entry supplies the openPractice `staff_id`, `role` and `qualification`.
+Link the native Shift Assignments to this roster and submit them, then submit
+the roster to publish its frozen baseline. Submitting, changing or canceling a
+linked assignment updates the revised roster. A replacement links to the
+coverage request so the adapter can verify that it fills the requested shift.
+
+Submitted native Attendance supplies approved in and out times. The companion
+app matches the employee, shift type and date to the applicable assignment.
+When more than one assignment matches, select it explicitly on Attendance.
+The adapter reads any unresolved assignments alongside the approved intervals.
+
+For native T-26, use the same dedicated test-site credentials above, including
+the setup account for creating synthetic employee and scheduling records. Set
+`OPENHR_T26_NATIVE=1` and run the case below with IANA time-zone data available
+to Python.
+
+```powershell
+$env:PYTHONPATH = Join-Path (Get-Location) 'src'
+python -m unittest -v open_practice.tests.test_openhr_native.OpenHRNativeSiteAcceptanceTest
+```

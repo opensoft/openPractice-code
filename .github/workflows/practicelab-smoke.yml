@@ -15,10 +15,11 @@ jobs:
     env:
       PRACTICELAB_URL: http://127.0.0.1:8000
       PRACTICELAB_SMOKE_USER: scheduler@example.invalid
+      PRACTICELAB_OPENHR_TEST_SITE_NAME: openhr.localhost
     steps:
       - uses: actions/checkout@v4
       - name: Build PracticeLab test image
-        run: docker build -f deploy/practicelab/Dockerfile -t practicelab:smoke .
+        run: docker build --build-arg INCLUDE_OPENHR=1 -f deploy/practicelab/Dockerfile -t practicelab:smoke .
       - name: Start a disposable Frappe site
         shell: bash
         run: |
@@ -76,11 +77,7 @@ jobs:
           echo "::add-mask::$PRACTICELAB_COMPANY_SECRET"
           echo "PRACTICELAB_COMPANY_KEY=$PRACTICELAB_COMPANY_KEY" >> "$GITHUB_ENV"
           echo "PRACTICELAB_COMPANY_SECRET=$PRACTICELAB_COMPANY_SECRET" >> "$GITHUB_ENV"
-          docker exec -e PRACTICELAB_COMPANY_KEY -e PRACTICELAB_COMPANY_SECRET practice bash -euc '
-            git init -q apps/hrms
-            git -C apps/hrms fetch --depth 1 https://github.com/opensoft/openHR.git 0a54d2c7b8b6043e2705b6f557b6ed65260670dd
-            git -C apps/hrms checkout -q --detach FETCH_HEAD
-            env/bin/pip install -e apps/hrms
+          docker exec -e PRACTICELAB_COMPANY_KEY -e PRACTICELAB_COMPANY_SECRET -e PRACTICELAB_OPENHR_TEST_SITE_NAME practice bash -euc '
             printf "%s\n" erpnext hrms >> sites/apps.txt
             bench new-site openhr.localhost --mariadb-user-host-login-scope="%" \
               --db-root-password "$PRACTICELAB_DB_ROOT_PASSWORD" --admin-password "$PRACTICELAB_SMOKE_PASSWORD"
@@ -90,17 +87,18 @@ jobs:
             bench --site practicelab.localhost execute open_practice.practicelab_onboarding_smoke.configure_practicelab
           '
           docker exec -d practice bash -c \
-            'bench --site openhr.localhost serve --port 8010 --noreload >/tmp/openhr-http.log 2>&1'
+            'bench serve --port 8010 --noreload >/tmp/openhr-http.log 2>&1'
           docker cp deploy/practicelab/openhr_fault_proxy.py practice:/tmp/openhr_fault_proxy.py
           docker exec -d practice bash -c \
             'env/bin/python /tmp/openhr_fault_proxy.py >/tmp/openhr-proxy.log 2>&1'
-          if ! curl -fsS --retry 15 --retry-all-errors --retry-delay 2 "http://127.0.0.1:8010/api/method/ping"; then
+          if ! curl -fsS --retry 15 --retry-all-errors --retry-delay 2 -H "X-Frappe-Site-Name: $PRACTICELAB_OPENHR_TEST_SITE_NAME" "http://127.0.0.1:8010/api/method/ping"; then
             docker exec practice tail -60 /tmp/openhr-http.log
             exit 1
           fi
-          docker exec -e PRACTICELAB_COMPANY_KEY -e PRACTICELAB_COMPANY_SECRET practice bash -euc '
+          docker exec -e PRACTICELAB_COMPANY_KEY -e PRACTICELAB_COMPANY_SECRET -e PRACTICELAB_OPENHR_TEST_SITE_NAME practice bash -euc '
             curl -fsS --retry 10 --retry-all-errors --retry-delay 1 \
               -H "Authorization: token $PRACTICELAB_COMPANY_KEY:$PRACTICELAB_COMPANY_SECRET" \
+              -H "X-Frappe-Site-Name: $PRACTICELAB_OPENHR_TEST_SITE_NAME" \
               "http://127.0.0.1:8011/api/resource/Company" >/dev/null
           '
       - name: Verify practice create, link, and lost response in the browser

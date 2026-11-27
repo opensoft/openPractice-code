@@ -1,6 +1,7 @@
 """QA-only proxy that drops one successful Company create response."""
 
 import json
+import os
 import socket
 from http.client import HTTPConnection
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -15,12 +16,15 @@ class FaultProxy(BaseHTTPRequestHandler):
 
     def forward(self):
         data = self.rfile.read(int(self.headers.get("Content-Length", 0)))
-        upstream = HTTPConnection("127.0.0.1", 8010, timeout=30)
+        upstream = HTTPConnection("127.0.0.1", int(os.environ.get("PRACTICELAB_UPSTREAM_PORT", "8010")), timeout=30)
         try:
-            upstream.request(self.command, self.path, body=data, headers={
+            headers = {
                 "Authorization": self.headers["Authorization"],
                 "Content-Type": "application/json",
-            })
+            }
+            if self.headers.get("X-Frappe-Site-Name"):
+                headers["X-Frappe-Site-Name"] = self.headers["X-Frappe-Site-Name"]
+            upstream.request(self.command, self.path, body=data, headers=headers)
             response = upstream.getresponse()
             body = response.read()
             drop = (

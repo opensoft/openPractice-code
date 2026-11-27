@@ -1,6 +1,7 @@
 """OpenHR Company operations for the PracticeLab onboarding connector."""
 
 import json
+import re
 from http.client import HTTPException
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode, urlsplit
@@ -27,13 +28,17 @@ class NoRedirect(HTTPRedirectHandler):
 
 
 class CompanyConnector:
-    def __init__(self, url, token, *, allow_test_http=False, country="United States", currency="USD"):
-        self.site = url.rstrip("/")
-        parts = urlsplit(self.site)
-        schemes = ("https", "http") if allow_test_http else ("https",)
+    def __init__(self, url, token, *, allow_test_http=False, site_name=None, country="United States", currency="USD"):
+        self.url = url.rstrip("/")
+        parts = urlsplit(self.url)
+        schemes = ("https", "http") if allow_test_http and parts.hostname == "127.0.0.1" else ("https",)
         if (parts.scheme not in schemes or not parts.hostname or parts.username or parts.password
                 or parts.path or parts.query or parts.fragment or not token):
             raise CompanyUnavailable("The openHR connection is not configured.")
+        if site_name and not re.fullmatch(r"[a-z0-9][a-z0-9.-]{0,138}", site_name):
+            raise CompanyUnavailable("The openHR site name is invalid.")
+        self.site_name = site_name
+        self.site = site_name or self.url
         self.token = token
         self.country = country
         self.currency = currency
@@ -41,7 +46,7 @@ class CompanyConnector:
 
     def _request(self, path, payload=None):
         request = Request(
-            self.site + COMPANY_API + path,
+            self.url + COMPANY_API + path,
             data=json.dumps(payload).encode("utf-8") if payload is not None else None,
             headers={
                 "Authorization": "token " + self.token,
@@ -49,6 +54,8 @@ class CompanyConnector:
                 "Content-Type": "application/json",
             },
         )
+        if self.site_name:
+            request.add_header("X-Frappe-Site-Name", self.site_name)
         try:
             with self.opener.open(request, timeout=8) as response:
                 return json.load(response)["data"]

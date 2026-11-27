@@ -42,6 +42,7 @@ def _connector():
         frappe.conf.get("open_practice_openhr_url", ""),
         frappe.conf.get("open_practice_openhr_token", ""),
         allow_test_http=frappe.conf.get("open_practice_openhr_test_http") == 1,
+        site_name=frappe.conf.get("open_practice_openhr_site_name"),
         country=frappe.conf.get("open_practice_openhr_country", "United States"),
         currency=frappe.conf.get("open_practice_openhr_currency", "USD"),
     )

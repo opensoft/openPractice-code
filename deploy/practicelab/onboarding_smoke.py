@@ -66,7 +66,10 @@ def main():
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
         token = os.environ["PRACTICELAB_COMPANY_KEY"] + ":" + os.environ["PRACTICELAB_COMPANY_SECRET"]
-        native = playwright.request.new_context(extra_http_headers={"Authorization": "token " + token})
+        headers = {"Authorization": "token " + token}
+        if site_name := os.environ.get("PRACTICELAB_OPENHR_TEST_SITE_NAME"):
+            headers["X-Frappe-Site-Name"] = site_name
+        native = playwright.request.new_context(extra_http_headers=headers)
         anonymous = playwright.request.new_context()
         denied = anonymous.get(PRACTICE + API + "get_setup")
         assert denied.status in (401, 403), denied.status

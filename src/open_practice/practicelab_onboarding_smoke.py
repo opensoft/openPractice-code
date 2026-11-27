@@ -1,4 +1,4 @@
-"""Seed the two disposable sites used by the PracticeLab onboarding smoke."""
+"""Seed synthetic PracticeLab and openHR onboarding rehearsal sites."""
 
 import os
 
@@ -10,13 +10,13 @@ from open_practice.frappe_practice_onboarding import ROLE
 from open_practice.openhr_company import REQUEST_FIELD
 
 
-def _require_disposable(site):
-    if frappe.local.site != site or frappe.session.user != "Administrator":
+def _require_synthetic(*sites):
+    if frappe.local.site not in sites or frappe.session.user != "Administrator":
         raise frappe.PermissionError
 
 
 def configure_openhr():
-    _require_disposable("openhr.localhost")
+    _require_synthetic("openhr.localhost", "openhr.practicelab.internal")
     install_request_field()
     if not frappe.db.exists("Warehouse Type", "Transit"):
         frappe.get_doc({"doctype": "Warehouse Type", "name": "Transit"}).insert()
@@ -27,10 +27,14 @@ def configure_openhr():
         "country": "United States",
         "default_currency": "USD",
     })
-    company.insert()
+    if not frappe.db.exists("Company", company.company_name):
+        company.insert()
+    connector_email = "qa-company-connector@example.invalid"
+    if frappe.db.exists("User", connector_email):
+        return
     frappe.get_doc({
         "doctype": "User",
-        "email": "qa-company-connector@example.invalid",
+        "email": connector_email,
         "first_name": "QA Company Connector",
         "send_welcome_email": 0,
         "api_key": os.environ["PRACTICELAB_COMPANY_KEY"],
@@ -53,9 +57,13 @@ def install_request_field():
 
 
 def configure_practicelab():
-    _require_disposable("practicelab.localhost")
+    _require_synthetic("practicelab.localhost", "practicelab.opensoft.dev")
+    if frappe.conf.get("open_practice_practicelab") != 1:
+        raise frappe.PermissionError
     for alias in ("solo", "group", "lost"):
         email = f"onboarding-{alias}@example.invalid"
+        if frappe.db.exists("User", email):
+            continue
         frappe.get_doc({
             "doctype": "User",
             "email": email,
@@ -65,7 +73,11 @@ def configure_practicelab():
             "user_type": "Website User",
             "roles": [{"role": ROLE}],
         }).insert()
-    update_site_config("open_practice_openhr_url", "http://127.0.0.1:8011")
+    update_site_config("open_practice_openhr_url", os.environ.get(
+        "PRACTICELAB_OPENHR_CONNECTOR_URL", "http://127.0.0.1:8011",
+    ))
+    if site_name := os.environ.get("PRACTICELAB_OPENHR_TEST_SITE_NAME"):
+        update_site_config("open_practice_openhr_site_name", site_name)
     update_site_config("open_practice_openhr_test_http", 1)
     token = os.environ["PRACTICELAB_COMPANY_KEY"] + ":" + os.environ["PRACTICELAB_COMPANY_SECRET"]
     update_site_config("open_practice_openhr_token", token)

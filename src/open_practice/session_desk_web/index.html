@@ -238,6 +238,16 @@
         <option value="contracted">Contracted</option>
       </select>
     </label>
+    <fieldset id="contracted-pharmacy-fields" class="field-group" disabled hidden>
+      <legend>Contracted pharmacy</legend>
+      <p class="session-description">Enter the name, NPI, or both.</p>
+      <div class="form-row">
+        <label>Pharmacy name <input name="contract_pharmacy_name" type="text" maxlength="255"></label>
+        <label>Pharmacy NPI
+          <input name="contract_pharmacy_npi" type="text" inputmode="numeric" pattern="[0-9]{10}" maxlength="10">
+        </label>
+      </div>
+    </fieldset>
   </template>
 </body>
 </html>

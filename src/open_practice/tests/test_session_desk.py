@@ -72,8 +72,9 @@ class SessionDeskTest(TestCase):
 
         first = self.book(facility["reference"], "in-person")
         second = self.book(facility["reference"], "telemedicine")
+        contract = {"contract_status": "contracted", "contract_pharmacy_name": "Example Pharmacy"}
         updated = self.request("/api/facilities", {
-            "reference": facility["reference"], "name": name, "contract_status": "contracted",
+            "reference": facility["reference"], "name": name, **contract,
         })
         self.assertEqual(self.request("/api/facilities")[-1], updated)
         self.assertEqual(updated["reference"], facility["reference"])
@@ -82,8 +83,46 @@ class SessionDeskTest(TestCase):
         saved = {row["id"]: row for row in SessionDesk(self.database).appointments()}
         self.assertEqual(saved[legacy["id"]], legacy)
         for booked in (first, second):
-            self.assertEqual(saved[booked["id"]], {**booked, "facility_name": name, "contract_status": "contracted"})
-        self.assertEqual(self.request("/api/facilities", {**updated, "contract_status": "no_contract"})["contract_status"], "no_contract")
+            self.assertEqual(saved[booked["id"]], {**booked, "facility_name": name, **contract})
+        cleared = self.request("/api/facilities", {**updated, "contract_status": "no_contract"})
+        self.assertEqual(cleared["contract_status"], "no_contract")
+        self.assertIsNone(cleared["contract_pharmacy_name"])
+
+    def test_contracted_pharmacy_npi_is_optional_and_distinct_from_the_facility_npi(self):
+        values = {
+            "name": "Example office", "facility_type": "office", **SITE,
+            "contract_status": "contracted", "contract_pharmacy_npi": "0123456789",
+        }
+        with self.assertRaises(HTTPError) as rejected:
+            self.request("/api/facilities", {**values, "contract_pharmacy_npi": "123456789X"})
+        with rejected.exception as response:
+            self.assertEqual(response.code, 400)
+        facility = self.request("/api/facilities", values)
+        self.assertEqual(facility["npi"], SITE["npi"])
+        self.assertEqual(facility["contract_pharmacy_npi"], "0123456789")
+        self.assertIsNone(facility["contract_pharmacy_name"])
+        edited = self.request("/api/facilities", {
+            "reference": facility["reference"], "name": values["name"], "contract_pharmacy_name": "Example Pharmacy",
+        })
+        self.assertEqual(edited["contract_pharmacy_npi"], "0123456789")
+        self.assertEqual(edited["contract_pharmacy_name"], "Example Pharmacy")
+        self.assertEqual(self.book(facility["reference"])["contract_pharmacy_npi"], "0123456789")
+
+    def test_pharmacies_do_not_have_contract_status_or_identifiers(self):
+        contract = {
+            "contract_status": "contracted",
+            "contract_pharmacy_name": "Example Pharmacy",
+            "contract_pharmacy_npi": "0123456789",
+        }
+        values = {"name": "Example facility", "facility_type": "alf", **SITE, **contract}
+        old = self.request("/api/facilities", values)
+        pharmacy = self.request("/api/facilities", {
+            **values, "facility_type": "pharmacy", "reference": old["reference"],
+        })
+        self.assertIn(pharmacy, self.request("/api/facilities"))
+        for record in (pharmacy, self.book(pharmacy["reference"])):
+            for field in contract:
+                self.assertIsNone(record[field])
 
     def test_facility_types_are_saved_in_the_directory_and_available_when_booking(self):
         pos_codes = {
@@ -113,11 +152,13 @@ class SessionDeskTest(TestCase):
                 self.assertEqual(self.request("/api/appointments", values), booked)
                 self.assertIn(saved, self.request("/api/facilities"))
                 self.assertEqual({key: saved[key] for key in details}, details)
-                self.assertEqual(saved["contract_status"], "unknown" if kind == "alf" else None)
+                self.assertEqual(saved["contract_status"], None if facility_type == "pharmacy" else "unknown")
 
     def test_hospital_setting_is_required_for_new_hospitals_and_can_be_set_on_legacy_records(self):
         with closing(SessionDesk(self.database).connect()) as connection, connection:
             connection.execute("ALTER TABLE facilities DROP COLUMN hospital_pos_code")
+            connection.execute("ALTER TABLE facilities DROP COLUMN contract_pharmacy_name")
+            connection.execute("ALTER TABLE facilities DROP COLUMN contract_pharmacy_npi")
             connection.execute("""
                 INSERT INTO facilities (reference, name, kind, facility_type)
                 VALUES ('legacy-hospital', 'Legacy hospital', 'alf', 'hospital')

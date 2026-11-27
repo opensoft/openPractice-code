@@ -4,6 +4,7 @@ const contractLabels = { unknown: "Unknown", no_contract: "No contract", contrac
 const livingLabels = { alone: "Lives alone", with_caregiver: "Lives with a caregiver" };
 const addressFields = ["street_address", "address_line_2", "city", "region", "postal_code"];
 const siteDetails = ["legal_name", "npi", ...addressFields];
+const contractPharmacyFields = ["contract_pharmacy_name", "contract_pharmacy_npi"];
 const patientFields = ["first_name", "last_name", "date_of_birth", "chart_reference"];
 const insuranceFields = {
   payer_name: "Payer", member_id: "Member ID", plan_name: "Plan",
@@ -76,6 +77,7 @@ const npiAutofilled = new Map();
 for (const group of ["site", "address", "contract"]) {
   get(`facility-${group}-fields`).append(get(`${group}-fields-template`).content.cloneNode(true));
 }
+const contractStatus = facilityForm.elements.contract_status;
 get("booking-address-fields").append(get("address-fields-template").content.cloneNode(true));
 for (const target of ["booking-insurance-fields", "insurance-edit-fields"]) {
   get(target).append(get("insurance-fields-template").content.cloneNode(true));
@@ -188,6 +190,11 @@ function renderSession(appointment) {
     facilityTypeLabels[appointment.facility_type],
     appointment.pos_code && `Location POS ${appointment.pos_code}`,
   ].filter(Boolean).join(" · ");
+  const pharmacyContract = [
+    contractLabels[appointment.contract_status],
+    appointment.contract_pharmacy_name,
+    appointment.contract_pharmacy_npi && `NPI ${appointment.contract_pharmacy_npi}`,
+  ].filter(Boolean).join(" · ");
   const rosterLabel = appointment.group_reference ? `Patients in this visit (${appointment.member_count})` : "Patient information";
   const keepRosterOpen = previousRoster?.open && Number(previousRoster.dataset.appointment) === appointment.id;
   session.innerHTML = `
@@ -195,7 +202,7 @@ function renderSession(appointment) {
     <p class="session-description">${displaySlot(appointment.time)} · ${escapeHTML(appointment.facility_name)} · ${modes[appointment.mode]}</p>
     ${locationClassification ? `<p class="session-description">${escapeHTML(locationClassification)}</p>` : ""}
     ${address ? `<p class="session-description">${escapeHTML(address)}</p>` : ""}
-    ${appointment.contract_status ? `<p class="session-description">Facility pharmacy contract · ${contractLabels[appointment.contract_status]}</p>` : ""}
+    ${appointment.contract_status ? `<p class="session-description">Facility pharmacy contract · ${escapeHTML(pharmacyContract)}</p>` : ""}
     ${appointment.living_arrangement ? `<p class="session-description">${livingLabels[appointment.living_arrangement]}</p>` : ""}
     ${identifiers ? `<p class="patient-details">${escapeHTML(identifiers)}</p>` : ""}
     <details id="patient-roster" class="patient-roster" data-appointment="${appointment.id}" ${keepRosterOpen ? "open" : ""}>
@@ -619,7 +626,13 @@ function showFacilityDetails(reference) {
     ["Address", locationAddress(facility)],
   ];
   if (facility.facility_type === "hospital") details.splice(2, 0, ["Hospital setting", hospitalSettingLabels[facility.pos_code]]);
-  if (facility.kind === "alf") details.push(["Pharmacy contract", contractLabels[facility.contract_status]]);
+  if (facility.facility_type !== "pharmacy") {
+    details.push(["Pharmacy contract", contractLabels[facility.contract_status ?? "unknown"]]);
+    if (facility.contract_status === "contracted") {
+      if (facility.contract_pharmacy_name) details.push(["Contracted pharmacy", facility.contract_pharmacy_name]);
+      if (facility.contract_pharmacy_npi) details.push(["Contracted pharmacy NPI", facility.contract_pharmacy_npi]);
+    }
+  }
   get("facility-details").innerHTML = details.map(([label, value]) =>
     `<dt>${label}</dt><dd>${escapeHTML(value || "Not recorded")}</dd>`).join("");
   get("change-facility-status").textContent = facility.archived ? "Restore facility" : "Archive facility";
@@ -635,7 +648,10 @@ function showFacilityEditor(facility = null) {
   facilityType.value = facility?.facility_type ?? "";
   hospitalSetting.value = facility?.facility_type === "hospital" ? facility.pos_code ?? "" : "";
   facilityForm.elements.name.value = facility?.name ?? "";
-  facilityForm.elements.contract_status.value = facility?.contract_status ?? "unknown";
+  contractStatus.value = facility?.contract_status ?? "unknown";
+  for (const key of contractPharmacyFields) {
+    facilityForm.elements[key].value = facility?.[key] ?? "";
+  }
   for (const key of siteDetails) {
     facilityForm.elements[key].value = facility?.[key] ?? "";
     if (key !== "address_line_2") {
@@ -650,7 +666,9 @@ function showFacilityEditor(facility = null) {
 
 function updateFacilityTypeFields() {
   toggleFields(get("hospital-setting-fields"), facilityType.value === "hospital");
-  toggleFields(get("facility-contract-fields"), facilityType.value !== "" && facilityType.value !== "office");
+  const hasContractField = facilityType.value !== "" && facilityType.value !== "pharmacy";
+  toggleFields(get("facility-contract-fields"), hasContractField);
+  toggleFields(get("contracted-pharmacy-fields"), hasContractField && contractStatus.value === "contracted");
 }
 
 function setNpiStatus(message) {
@@ -751,6 +769,7 @@ get("edit-facility").addEventListener("click", () => {
   showFacilityEditor(facilities.find((facility) => facility.reference === selectedFacilityReference));
 });
 facilityType.addEventListener("change", updateFacilityTypeFields);
+contractStatus.addEventListener("change", updateFacilityTypeFields);
 facilityDialog.addEventListener("close", () => {
   resetNpiLookup();
   if (!facilityHandoff) return;

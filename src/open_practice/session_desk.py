@@ -25,6 +25,7 @@ INSURANCE_FIELDS = (
     ("group_number", "insurance group number", 80),
 )
 CONTRACT_STATUSES = ("unknown", "no_contract", "contracted")
+CONTRACT_PHARMACY_FIELDS = ("contract_pharmacy_name", "contract_pharmacy_npi")
 # CMS Place of Service Code Set for Professional Claims.
 FACILITY_TYPES = {
     "office": ("Office / clinic", "11"),
@@ -67,7 +68,8 @@ APPOINTMENT_SELECT = """
         ) END AS member_count,
         COALESCE(f.name, 'Patient home') AS facility_name,
         COALESCE(f.kind, 'home') AS location_kind, f.facility_type, f.hospital_pos_code,
-        CASE WHEN f.kind = 'alf' THEN f.contract_status END AS contract_status, h.living_arrangement,
+        CASE WHEN f.facility_type IS NOT 'pharmacy' THEN f.contract_status END AS contract_status,
+        f.contract_pharmacy_name, f.contract_pharmacy_npi, h.living_arrangement,
         COALESCE(d.street_address, h.street_address) AS street_address,
         COALESCE(d.address_line_2, h.address_line_2) AS address_line_2,
         COALESCE(d.city, h.city) AS city, COALESCE(d.region, h.region) AS region,
@@ -120,6 +122,8 @@ def _facility_pos(facility_type, hospital_pos_code):
 def _facility(row):
     result = dict(row)
     result["pos_code"] = _facility_pos(result["facility_type"], result.pop("hospital_pos_code"))
+    if result["facility_type"] == "pharmacy":
+        result["contract_status"] = None
     return result
 
 
@@ -181,6 +185,27 @@ def _address_values(details):
     }
 
 
+def _contract_values(values, existing, facility_type):
+    if facility_type == "pharmacy":
+        return None, None, None
+    old_status = existing["contract_status"] if existing else None
+    status = values.get("contract_status", old_status or "unknown")
+    if status not in CONTRACT_STATUSES:
+        raise ValueError("Choose a contract status.")
+    if status != "contracted":
+        return status, None, None
+
+    pharmacy = {}
+    for field in CONTRACT_PHARMACY_FIELDS:
+        value = values.get(field, existing[field] if existing else None)
+        pharmacy[field] = "" if value is None else value
+    name = _location_text(pharmacy, "contract_pharmacy_name", "contracted pharmacy name", FACILITY_NAME_LIMIT, optional=True)
+    npi = _location_text(pharmacy, "contract_pharmacy_npi", "contracted pharmacy NPI", 10, optional=True)
+    if npi and not re.fullmatch(NPI_PATTERN, npi):
+        raise ValueError("Enter a 10-digit NPI for the contracted pharmacy.")
+    return status, name or None, npi or None
+
+
 def _insurance_values(details):
     if not isinstance(details, dict):
         raise ValueError("Enter the primary insurance details.")
@@ -231,6 +256,8 @@ class SessionDesk:
                     name TEXT NOT NULL UNIQUE COLLATE NOCASE,
                     kind TEXT NOT NULL,
                     contract_status TEXT,
+                    contract_pharmacy_name TEXT,
+                    contract_pharmacy_npi TEXT,
                     facility_type TEXT,
                     hospital_pos_code TEXT,
                     archived INTEGER NOT NULL DEFAULT 0 CHECK (archived IN (0, 1))
@@ -249,6 +276,9 @@ class SessionDesk:
                 """)
             if "hospital_pos_code" not in facility_columns:
                 connection.execute("ALTER TABLE facilities ADD COLUMN hospital_pos_code TEXT")
+            for field in CONTRACT_PHARMACY_FIELDS:
+                if field not in facility_columns:
+                    connection.execute(f"ALTER TABLE facilities ADD COLUMN {field} TEXT")
             connection.execute("""
                 INSERT INTO facilities (reference, name, kind, facility_type)
                 VALUES ('clinic', 'Clinic', 'clinic', 'office'), ('alf', 'Assisted living facility', 'alf', 'alf')
@@ -423,28 +453,30 @@ class SessionDesk:
                         raise ValueError("Choose a hospital setting for the place of service.")
             kind = "clinic" if facility_type == "office" else "alf"
             name = _location_text(values, "name", "location name", FACILITY_NAME_LIMIT)
-            old_status = existing["contract_status"] if existing else None
-            status = values.get("contract_status", old_status or "unknown") if kind == "alf" else old_status
-            if kind == "alf" and status not in CONTRACT_STATUSES:
-                raise ValueError("Choose a contract status.")
+            contract = _contract_values(values, existing, facility_type)
             details = _site_values(values) if not reference or any(key in values for key in SITE_FIELDS) else {}
             same_name = connection.execute(SITE_SELECT + " WHERE f.name = ?", (name,)).fetchone()
             if same_name is not None and same_name["reference"] != reference:
                 if same_name["archived"]:
                     raise ValueError("An archived facility uses that name. Find it in Facilities to restore it.")
-                if (not reference and same_name["facility_type"] == facility_type and same_name["contract_status"] == status
+                saved = _facility(same_name)
+                if (not reference and saved["facility_type"] == facility_type
                         and same_name["hospital_pos_code"] == hospital_pos_code
-                        and all(same_name[key] == value for key, value in details.items())):
-                    return _facility(same_name)
+                        and (saved["contract_status"], *(saved[key] for key in CONTRACT_PHARMACY_FIELDS)) == contract
+                        and all(saved[key] == value for key, value in details.items())):
+                    return saved
                 raise ValueError("That location name is already in use. Choose the saved location or use a different name.")
             reference = reference or f"{kind}-{uuid4().hex}"
             connection.execute("""
-                INSERT INTO facilities (reference, name, kind, contract_status, facility_type, hospital_pos_code)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO facilities (
+                    reference, name, kind, facility_type, hospital_pos_code,
+                    contract_status, contract_pharmacy_name, contract_pharmacy_npi
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (reference) DO UPDATE SET name = excluded.name, kind = excluded.kind,
                     contract_status = excluded.contract_status, facility_type = excluded.facility_type,
-                    hospital_pos_code = excluded.hospital_pos_code
-            """, (reference, name, kind, status, facility_type, hospital_pos_code))
+                    hospital_pos_code = excluded.hospital_pos_code, contract_pharmacy_name = excluded.contract_pharmacy_name,
+                    contract_pharmacy_npi = excluded.contract_pharmacy_npi
+            """, (reference, name, kind, facility_type, hospital_pos_code, *contract))
             if details:
                 connection.execute("""
                     INSERT INTO site_details (

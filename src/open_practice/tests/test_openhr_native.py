@@ -11,6 +11,7 @@ from open_practice.openhr_adapter import ATTENDANCE, REQUEST, ROSTER, FrappeClie
 from open_practice.staffing_demand import calculate_demand, summarize_demand
 from open_practice.staffing_variance import TimeWindow, compare_staffing, rank_replacements
 from open_practice.tests.test_openhr_adapter import submit
+from open_practice.tests.staff_provider_conformance import StaffingConformance
 from open_practice.tests.test_staffing_demand import at, overlapping_procedures
 from open_practice.tests.test_staffing_variance import REPORTING_PERIOD, rn_callout_scenario
 
@@ -48,6 +49,7 @@ class OpenHRNativeSiteAcceptanceTest(TestCase):
 
         adapter = OpenHRAdapter(service)
         series = f"native-t26-{uuid4().hex}"
+        conformance = StaffingConformance(self, series)
         published, _, _, worked, candidates = rn_callout_scenario()
         first, called_out = published.assignments
         demand = calculate_demand(overlapping_procedures())
@@ -105,7 +107,7 @@ class OpenHRNativeSiteAcceptanceTest(TestCase):
             return manager.create("Shift Assignment", fields)
 
         def read():
-            evidence = adapter.get_staffing(series)
+            evidence = conformance.read(adapter)
             return evidence, compare_staffing(
                 demand, evidence.published, period=REPORTING_PERIOD, revisions=evidence.revisions,
                 attendance=evidence.attendance,
@@ -133,19 +135,21 @@ class OpenHRNativeSiteAcceptanceTest(TestCase):
         adapter.post_open_shift(request)
         self.assertEqual(service.get(REQUEST, request.correlation_id)["name"], request.correlation_id)
         evidence, pending = read()
-        self.assertEqual((evidence.coverage_status(request), pending.revised_gaps), ("pending", (gap,)))
+        conformance.expect_open_shift(evidence, request, "pending")
+        self.assertEqual(pending.revised_gaps, (gap,))
 
         float_draft = shift(candidates[1].staff_id, request)
         with self.assertRaises(FrappeHTTPError) as denied:
             submit(service, float_draft)
         self.assertEqual(denied.exception.status, 403)
         evidence, pending = read()
-        self.assertEqual((evidence.coverage_status(request), pending.revised_gaps), ("pending", (gap,)))
+        conformance.expect_open_shift(evidence, request, "pending")
+        self.assertEqual(pending.revised_gaps, (gap,))
         self.assertEqual(pending.revised, after_callout.revised)
 
         float_shift = submit(manager, float_draft)
         evidence, covered = read()
-        self.assertEqual(evidence.coverage_status(request), "confirmed")
+        conformance.expect_open_shift(evidence, request, "confirmed")
         self.assertEqual(covered.revised_gaps, ())
         self.assertEqual(covered.published, baseline.published)
         self.assertEqual(len(covered.revisions), 2)

@@ -45,6 +45,22 @@ assignments remain effective. Coverage stays pending until the linked assignment
 in the current revised roster cover the requested role, qualification, headcount
 and exact interval. Draft roster and attendance records are ignored.
 
+### Run the provider conformance suite
+
+From the assembly checkout in PowerShell, use both the code and spec legs for
+this change. The suite reads the canonical schema from `CONTRACTS_DIR`.
+
+```powershell
+$env:CONTRACTS_DIR = Join-Path (Get-Location) 'spec/contracts'
+$env:PYTHONPATH = Join-Path (Get-Location) 'code/src'
+python -m pip install -r code/requirements-test.txt
+python -m unittest discover -s code/src/open_practice/tests -v
+```
+
+This runs the canonical fixtures, AP-10 and AP-11 tests, and the loopback
+openHR workflow. The adapter conformance assertions also run in both live
+openHR cases when the corresponding test environment is configured.
+
 ### Run T-26
 
 The loopback rehearsal runs with the regular Python tests. It exercises the
@@ -63,13 +79,6 @@ administrator. Assign the test users their roles after setup. The fixture
 writes uniquely scoped synthetic roster, coverage and attendance records. It
 submits the HR projections directly using the test manager's permissions.
 The native-record acceptance case below exercises the automatic projection.
-
-From this checkout in PowerShell, run the command below.
-
-```powershell
-$env:PYTHONPATH = Join-Path (Get-Location) 'src'
-python -m unittest discover -s src/open_practice/tests -v
-```
 
 The live T-26 case is reported separately as
 `test_t26_against_openhr_test_site` and is skipped when no URL is configured.
@@ -95,12 +104,11 @@ app matches the employee, shift type and date to the applicable assignment.
 When more than one assignment matches, select it explicitly on Attendance.
 The adapter reads any unresolved assignments alongside the approved intervals.
 
-For native T-26, use the same dedicated test-site credentials above, including
+For native T-26, set the conformance environment above and use the dedicated test-site credentials, including
 the setup account for creating synthetic employee and scheduling records. Set
 `OPENHR_T26_NATIVE=1` and run the case below with IANA time-zone data available
 to Python.
 
 ```powershell
-$env:PYTHONPATH = Join-Path (Get-Location) 'src'
 python -m unittest -v open_practice.tests.test_openhr_native.OpenHRNativeSiteAcceptanceTest
 ```

@@ -1,13 +1,13 @@
 """Read the openHR scheduling projections over Frappe REST for AP-11."""
 
 import json
-import re
-from dataclasses import dataclass
 from datetime import datetime
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
+from open_practice.staff_schedule_provider import OpenShiftRequest
+from open_practice.staff_schedule_provider import StaffScheduleEvidence as OpenHRStaffing
 from open_practice.staffing_variance import ApprovedAttendance, RosterSnapshot, StaffingAssignment, TimeWindow
 
 
@@ -101,57 +101,6 @@ class FrappeClient:
             offset += len(rows)
 
 
-@dataclass(frozen=True)
-class OpenShiftRequest:
-    correlation_id: str
-    location: str
-    role: str
-    qualification: str
-    window: TimeWindow
-    headcount: int
-
-    def __post_init__(self):
-        if not isinstance(self.correlation_id, str) or not re.fullmatch(
-            r"[0-9a-f]{12}4[0-9a-f]{3}[89ab][0-9a-f]{15}", self.correlation_id,
-        ):
-            raise ValueError("Use a random UUID hex value for the coverage request reference.")
-        workforce_fields = (self.location, self.role, self.qualification)
-        if any(not isinstance(value, str) or not value.strip() for value in workforce_fields):
-            raise ValueError("A coverage request needs a site, role and qualification.")
-        if type(self.headcount) is not int or self.headcount < 1:
-            raise ValueError("A coverage request needs a positive headcount.")
-
-    def _document(self):
-        return {
-            "correlation_id": self.correlation_id,
-            "location_ref": self.location,
-            "staff_role": self.role,
-            "qualification": self.qualification,
-            "starts_at_iso": self.window.starts_at.isoformat(),
-            "ends_at_iso": self.window.ends_at.isoformat(),
-            "headcount": self.headcount,
-        }
-
-
-@dataclass(frozen=True)
-class OpenHRStaffing:
-    published: RosterSnapshot
-    revisions: tuple[RosterSnapshot, ...]
-    attendance: ApprovedAttendance | None
-    coverage_links: tuple[tuple[str, StaffingAssignment], ...]
-
-    def coverage_status(self, request: OpenShiftRequest) -> str:
-        confirmed = {
-            assignment.staff_id for reference, assignment in self.coverage_links
-            if reference == request.correlation_id
-            and (assignment.location, assignment.role, assignment.qualification)
-            == (request.location, request.role, request.qualification)
-            and assignment.window.starts_at <= request.window.starts_at
-            and assignment.window.ends_at >= request.window.ends_at
-        }
-        return "confirmed" if len(confirmed) >= request.headcount else "pending"
-
-
 def _json_array(document, field):
     items = json.loads(document[field])
     if not isinstance(items, list):
@@ -177,7 +126,16 @@ class OpenHRAdapter:
 
     def post_open_shift(self, request: OpenShiftRequest) -> None:
         """Send workforce requirements only. A successful post leaves coverage pending."""
-        values = request._document()
+        fields = request.as_provider_message()["data"]
+        values = {
+            "correlation_id": fields["correlation_id"],
+            "location_ref": fields["location"],
+            "staff_role": fields["role"],
+            "qualification": fields["qualification"],
+            "starts_at_iso": fields["starts_at"],
+            "ends_at_iso": fields["ends_at"],
+            "headcount": fields["headcount"],
+        }
         try:
             document = self._client.get(REQUEST, request.correlation_id)
         except FrappeHTTPError as error:

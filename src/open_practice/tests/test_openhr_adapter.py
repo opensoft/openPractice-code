@@ -12,21 +12,12 @@ from uuid import uuid4
 from open_practice.openhr_adapter import (
     ATTENDANCE, REQUEST, ROSTER, FrappeClient, FrappeHTTPError, OpenHRAdapter, OpenHRError, OpenShiftRequest,
 )
+from open_practice.staff_schedule_provider import assignment_fields
 from open_practice.staffing_demand import calculate_demand, summarize_demand
 from open_practice.staffing_variance import TimeWindow, compare_staffing, rank_replacements
+from open_practice.tests.staff_provider_conformance import StaffingConformance
 from open_practice.tests.test_staffing_demand import at, overlapping_procedures
 from open_practice.tests.test_staffing_variance import REPORTING_PERIOD, rn_callout_scenario
-
-
-def assignment_document(assignment):
-    return {
-        "staff_id": assignment.staff_id,
-        "location": assignment.location,
-        "role": assignment.role,
-        "qualification": assignment.qualification,
-        "starts_at": assignment.window.starts_at.isoformat(),
-        "ends_at": assignment.window.ends_at.isoformat(),
-    }
 
 
 def submit(manager, document):
@@ -38,6 +29,7 @@ def submit(manager, document):
 def run_t26(test, service, manager):
     adapter = OpenHRAdapter(service)
     series = f"synthetic-t26-{uuid4().hex}"
+    conformance = StaffingConformance(test, series)
     demand = calculate_demand(overlapping_procedures())
     interval, = demand
     test.assertEqual((interval.starts_at, interval.ends_at), (at(9, 10), at(9, 20)))
@@ -47,7 +39,7 @@ def run_t26(test, service, manager):
     published, callout, revised, worked, candidates = rn_callout_scenario()
 
     def roster_document(snapshot, sequence, request=None):
-        rows = [assignment_document(assignment) for assignment in snapshot.assignments]
+        rows = [assignment_fields(assignment) for assignment in snapshot.assignments]
         if request:
             rows[-1]["coverage_request"] = request.correlation_id
         return manager.create(ROSTER, {
@@ -59,7 +51,7 @@ def run_t26(test, service, manager):
         })
 
     def read():
-        evidence = adapter.get_staffing(series)
+        evidence = conformance.read(adapter)
         return evidence, compare_staffing(
             demand, evidence.published, period=REPORTING_PERIOD, revisions=evidence.revisions,
             attendance=evidence.attendance,
@@ -88,7 +80,7 @@ def run_t26(test, service, manager):
     with test.assertRaises(OpenHRError):
         adapter.post_open_shift(replace(request, headcount=2))
     evidence, pending = read()
-    test.assertEqual(evidence.coverage_status(request), "pending")
+    conformance.expect_open_shift(evidence, request, "pending")
     test.assertEqual(pending.revised_gaps, (gap,))
 
     draft = roster_document(revised, 3, request)
@@ -96,12 +88,12 @@ def run_t26(test, service, manager):
         submit(service, draft)
     test.assertEqual(denied.exception.status, 403)
     evidence, pending = read()
-    test.assertEqual(evidence.coverage_status(request), "pending")
+    conformance.expect_open_shift(evidence, request, "pending")
     test.assertEqual(pending.revised_gaps, (gap,))
 
     confirmed = submit(manager, draft)
     evidence, covered = read()
-    test.assertEqual(evidence.coverage_status(request), "confirmed")
+    conformance.expect_open_shift(evidence, request, "confirmed")
     test.assertEqual(covered.revised.reference, confirmed["name"])
     test.assertEqual(covered.revised_gaps, ())
     test.assertEqual(covered.published, baseline)
@@ -110,7 +102,7 @@ def run_t26(test, service, manager):
     attendance = manager.create(ATTENDANCE, {
         "roster_revision": confirmed["name"],
         "sequence_number": 1,
-        "worked_intervals_json": json.dumps([assignment_document(interval) for interval in worked.worked_intervals]),
+        "worked_intervals_json": json.dumps([assignment_fields(interval) for interval in worked.worked_intervals]),
         "exceptions_json": json.dumps(["synthetic-exception-follow-up"]),
     })
     evidence, before_approval = read()

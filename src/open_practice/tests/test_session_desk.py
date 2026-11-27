@@ -72,47 +72,90 @@ class SessionDeskTest(TestCase):
 
         first = self.book(facility["reference"], "in-person")
         second = self.book(facility["reference"], "telemedicine")
-        contract = {"contract_status": "contracted", "contract_pharmacy_name": "Example Pharmacy"}
+        pharmacy = self.request("/api/facilities", {
+            **SITE, "name": "Example Pharmacy", "facility_type": "pharmacy", "npi": "0123456789",
+        })
+        contract = {"contract_status": "contracted", "contract_pharmacy_reference": pharmacy["reference"]}
         updated = self.request("/api/facilities", {
             "reference": facility["reference"], "name": name, **contract,
         })
-        self.assertEqual(self.request("/api/facilities")[-1], updated)
+        self.assertIn(updated, self.request("/api/facilities"))
         self.assertEqual(updated["reference"], facility["reference"])
         self.assertEqual({key: updated[key] for key in SITE}, SITE)
 
         saved = {row["id"]: row for row in SessionDesk(self.database).appointments()}
         self.assertEqual(saved[legacy["id"]], legacy)
         for booked in (first, second):
-            self.assertEqual(saved[booked["id"]], {**booked, "facility_name": name, **contract})
+            self.assertEqual(saved[booked["id"]], {
+                **booked, "facility_name": name, **contract,
+                "contract_pharmacy_name": pharmacy["name"], "contract_pharmacy_npi": pharmacy["npi"],
+            })
         cleared = self.request("/api/facilities", {**updated, "contract_status": "no_contract"})
         self.assertEqual(cleared["contract_status"], "no_contract")
         self.assertIsNone(cleared["contract_pharmacy_name"])
+        self.assertIsNone(cleared["contract_pharmacy_reference"])
 
-    def test_contracted_pharmacy_npi_is_optional_and_distinct_from_the_facility_npi(self):
+    def test_contract_follows_pharmacy_directory_edits_and_preserves_an_archived_link(self):
+        pharmacy = self.request("/api/facilities", {
+            **SITE, "name": "Example Pharmacy", "facility_type": "pharmacy", "npi": "0123456789",
+        })
         values = {
             "name": "Example office", "facility_type": "office", **SITE,
-            "contract_status": "contracted", "contract_pharmacy_npi": "0123456789",
+            "contract_status": "contracted",
         }
-        with self.assertRaises(HTTPError) as rejected:
-            self.request("/api/facilities", {**values, "contract_pharmacy_npi": "123456789X"})
-        with rejected.exception as response:
-            self.assertEqual(response.code, 400)
-        facility = self.request("/api/facilities", values)
+        for bad_reference in ("clinic", "missing"):
+            with self.subTest(bad_reference=bad_reference), self.assertRaises(HTTPError) as rejected:
+                self.request("/api/facilities", {**values, "contract_pharmacy_reference": bad_reference})
+            with rejected.exception as response:
+                self.assertEqual(response.code, 400)
+        facility = self.request("/api/facilities", {**values, "contract_pharmacy_reference": pharmacy["reference"]})
         self.assertEqual(facility["npi"], SITE["npi"])
         self.assertEqual(facility["contract_pharmacy_npi"], "0123456789")
-        self.assertIsNone(facility["contract_pharmacy_name"])
-        edited = self.request("/api/facilities", {
-            "reference": facility["reference"], "name": values["name"], "contract_pharmacy_name": "Example Pharmacy",
+        with self.assertRaises(HTTPError) as rejected:
+            self.request("/api/facilities", {
+                "reference": pharmacy["reference"], "name": pharmacy["name"], "facility_type": "office",
+            })
+        with rejected.exception as response:
+            self.assertEqual(response.code, 400)
+        self.request("/api/facilities", {
+            "reference": pharmacy["reference"], "name": "Renamed Pharmacy", **{**SITE, "npi": "0123456788"},
         })
-        self.assertEqual(edited["contract_pharmacy_npi"], "0123456789")
-        self.assertEqual(edited["contract_pharmacy_name"], "Example Pharmacy")
-        self.assertEqual(self.book(facility["reference"])["contract_pharmacy_npi"], "0123456789")
+        self.request(f"/api/facilities/{pharmacy['reference']}/archive", {})
+        kept = self.request("/api/facilities", {"reference": facility["reference"], "name": facility["name"]})
+        self.assertEqual(kept["contract_pharmacy_reference"], pharmacy["reference"])
+        self.assertEqual(kept["contract_pharmacy_name"], "Renamed Pharmacy")
+        self.assertEqual(self.book(facility["reference"])["contract_pharmacy_npi"], "0123456788")
+        with self.assertRaises(HTTPError) as rejected:
+            self.request("/api/facilities", {
+                **values, "name": "Another Office", "contract_pharmacy_reference": pharmacy["reference"],
+            })
+        with rejected.exception as response:
+            self.assertEqual(response.code, 400)
+
+    def test_legacy_contract_details_remain_visible_until_linked_to_the_directory(self):
+        office = self.request("/api/facilities", {"name": "Example Office", "facility_type": "office", **SITE})
+        with closing(SessionDesk(self.database).connect()) as connection, connection:
+            connection.execute("ALTER TABLE facilities DROP COLUMN contract_pharmacy_reference")
+            connection.execute("""
+                UPDATE facilities SET contract_status = 'contracted', contract_pharmacy_name = 'Old Pharmacy',
+                    contract_pharmacy_npi = '0123456789' WHERE reference = ?
+            """, (office["reference"],))
+        SessionDesk(self.database)
+        values = {"reference": office["reference"], "name": office["name"], "contract_pharmacy_reference": ""}
+        unchanged = self.request("/api/facilities", values)
+        self.assertIsNone(unchanged["contract_pharmacy_reference"])
+        self.assertEqual(unchanged["contract_pharmacy_name"], "Old Pharmacy")
+        pharmacy = self.request("/api/facilities", {"name": "Directory Pharmacy", "facility_type": "pharmacy", **SITE})
+        linked = self.request("/api/facilities", {**values, "contract_pharmacy_reference": pharmacy["reference"]})
+        self.assertEqual(linked["contract_pharmacy_name"], pharmacy["name"])
+        self.assertEqual(linked["contract_pharmacy_npi"], pharmacy["npi"])
 
     def test_pharmacies_do_not_have_contract_status_or_identifiers(self):
         contract = {
             "contract_status": "contracted",
-            "contract_pharmacy_name": "Example Pharmacy",
-            "contract_pharmacy_npi": "0123456789",
+            "contract_pharmacy_reference": self.request("/api/facilities", {
+                "name": "Directory Pharmacy", "facility_type": "pharmacy", **SITE,
+            })["reference"],
         }
         values = {"name": "Example facility", "facility_type": "alf", **SITE, **contract}
         old = self.request("/api/facilities", values)
@@ -121,7 +164,7 @@ class SessionDeskTest(TestCase):
         })
         self.assertIn(pharmacy, self.request("/api/facilities"))
         for record in (pharmacy, self.book(pharmacy["reference"])):
-            for field in contract:
+            for field in (*contract, "contract_pharmacy_name", "contract_pharmacy_npi"):
                 self.assertIsNone(record[field])
 
     def test_facility_types_are_saved_in_the_directory_and_available_when_booking(self):
@@ -154,7 +197,7 @@ class SessionDeskTest(TestCase):
                 self.assertEqual({key: saved[key] for key in details}, details)
                 self.assertEqual(saved["contract_status"], None if facility_type == "pharmacy" else "unknown")
 
-    def test_hospital_setting_is_required_for_new_hospitals_and_can_be_set_on_legacy_records(self):
+    def test_hospital_setting_is_optional_and_can_be_set_on_legacy_records(self):
         with closing(SessionDesk(self.database).connect()) as connection, connection:
             connection.execute("ALTER TABLE facilities DROP COLUMN hospital_pos_code")
             connection.execute("ALTER TABLE facilities DROP COLUMN contract_pharmacy_name")
@@ -169,8 +212,10 @@ class SessionDeskTest(TestCase):
         booked = self.book(legacy["reference"])
         self.assertIsNone(booked["pos_code"])
 
-        details = {"name": "Example Hospital", "facility_type": "hospital", **SITE}
-        for selection in ({}, {"pos_code": "99"}, {"pos_code": 19}):
+        details = {"name": "Example Hospital", "facility_type": "hospital"}
+        self.assertIsNone(self.request("/api/facilities", details)["pos_code"])
+        self.assertIsNone(self.request("/api/facilities", {**details, "pos_code": ""})["pos_code"])
+        for selection in ({"pos_code": "99"}, {"pos_code": 19}):
             with self.subTest(selection=selection), self.assertRaises(HTTPError) as rejected:
                 self.request("/api/facilities", {**details, **selection})
             with rejected.exception as response:
@@ -183,12 +228,14 @@ class SessionDeskTest(TestCase):
             self.assertEqual(updated["pos_code"], code)
             self.assertEqual(self.request("/api/appointments")[0]["pos_code"], code)
 
+        cleared = self.request("/api/facilities", {"reference": legacy["reference"], "name": legacy["name"], "pos_code": ""})
+        self.assertIsNone(cleared["pos_code"])
         changed_type = self.request("/api/facilities", {**updated, "facility_type": "urgent_care", **SITE})
         self.assertEqual(changed_type["pos_code"], "20")
 
-    def test_facility_creation_requires_a_type_and_uses_the_directory(self):
+    def test_facility_creation_requires_only_location_name_and_uses_the_directory(self):
         details = {"name": "Example Hospital", **SITE}
-        for invalid in (details, {**details, "facility_type": "home"}, {**details, "facility_type": "hospital", "npi": "bad"}):
+        for invalid in ({}, {"name": " "}, {**details, "facility_type": "home"}, {**details, "npi": "bad"}):
             with self.subTest(invalid=invalid), self.assertRaises(HTTPError) as rejected:
                 self.request("/api/facilities", invalid)
             with rejected.exception as response:
@@ -203,6 +250,21 @@ class SessionDeskTest(TestCase):
             self.assertEqual(response.code, 400)
         self.assertEqual(self.request("/api/appointments"), [])
         self.assertEqual([row["reference"] for row in self.request("/api/facilities")], ["clinic"])
+
+        named = self.request("/api/facilities", {"name": "Example Facility"})
+        self.assertIsNone(named["facility_type"])
+        self.assertEqual((named["npi"], named["legal_name"], named["street_address"]), ("", "", ""))
+        self.assertEqual(self.request("/api/facilities", {"name": named["name"], "facility_type": ""}), named)
+        booked = self.book(named["reference"])
+        self.assertEqual(booked["facility_name"], named["name"])
+        self.assertIsNone(booked["pos_code"])
+
+        edit = {"reference": named["reference"], "name": named["name"]}
+        self.request("/api/facilities", {**edit, "city": "Denver", "npi": "1234567893"})
+        changed = self.request("/api/facilities", {**edit, "npi": ""})
+        self.assertEqual(changed["city"], "Denver")
+        self.assertEqual(changed["npi"], "")
+        self.assertEqual(self.request("/api/facilities", {**edit, "city": ""})["city"], "")
 
     def test_facility_npi_lookup_uses_organization_name_and_practice_address(self):
         npi = SITE["npi"]
@@ -257,6 +319,66 @@ class SessionDeskTest(TestCase):
         with failed.exception as response:
             self.assertEqual(response.code, 502)
             self.assertIn("manually", json.load(response)["error"])
+
+    def test_facility_npi_search_falls_back_to_location_name_and_ranks_practice_addresses(self):
+        primary = {
+            "address_purpose": "LOCATION", "address_1": "25 Other Street", "city": "DENVER",
+            "state": "CO", "postal_code": "802020001", "country_code": "US",
+        }
+        secondary = {**primary, "address_1": "10 EXAMPLE ST", "address_2": "STE 2"}
+        organization = {
+            "number": 1234567893, "enumeration_type": "NPI-2",
+            "basic": {"organization_name": "Example Medical LLC", "status": "A"},
+            "addresses": [primary],
+        }
+        records = [
+            {**organization, "number": 1234567894},
+            {**organization, "practiceLocations": [secondary]},
+            {**organization, "number": 1234567895, "enumeration_type": "NPI-1"},
+            {**organization, "number": 1234567896, "basic": {"status": "D"}},
+        ]
+        responses = [BytesIO(json.dumps({"results": items}).encode()) for items in ([], records)]
+        path = "/api/facilities/npi/search"
+        with patch("open_practice.npi_registry.urlopen", side_effect=responses) as registry:
+            result = self.request(path, {
+                **ADDRESS, "postal_code": "80202-0001", "name": "Example Medical",
+                "legal_name": "Example Medical Associates",
+            })
+            queries = [parse_qs(urlsplit(call.args[0].full_url).query) for call in registry.call_args_list]
+        self.assertEqual([query["organization_name"] for query in queries], [
+            ["EXAMPLE MEDICAL ASSOCIATES*"], ["EXAMPLE MEDICAL*"],
+        ])
+        self.assertEqual(queries[1], {
+            "version": ["2.1"], "enumeration_type": ["NPI-2"], "address_purpose": ["LOCATION"],
+            "limit": ["50"], "city": ["Denver"], "state": ["CO"], "postal_code": ["80202"],
+            "organization_name": ["EXAMPLE MEDICAL*"],
+        })
+        self.assertEqual([match["npi"] for match in result["matches"]], ["1234567893", "1234567894"])
+        self.assertEqual(result["matches"][0]["fields"]["street_address"], "10 EXAMPLE ST")
+        self.assertEqual(result["matches"][0]["fields"]["address_line_2"], "STE 2")
+        self.assertEqual([row["reference"] for row in self.request("/api/facilities")], ["clinic"])
+
+        responses = [BytesIO(json.dumps({"results": items}).encode()) for items in ([], records)]
+        with patch("open_practice.npi_registry.urlopen", side_effect=responses) as registry:
+            result = self.request(path, {**ADDRESS, "name": "Unregistered venue name"})
+            address_query = parse_qs(urlsplit(registry.call_args.args[0].full_url).query)
+        self.assertNotIn("organization_name", address_query)
+        self.assertEqual([match["npi"] for match in result["matches"]], ["1234567893"])
+
+    def test_facility_npi_search_handles_missing_criteria_no_matches_and_unavailable_registry(self):
+        path = "/api/facilities/npi/search"
+        with patch("open_practice.npi_registry.urlopen") as registry, self.assertRaises(HTTPError) as rejected:
+            self.request(path, {"street_address": "10 Example Street"})
+        registry.assert_not_called()
+        with rejected.exception as response:
+            self.assertEqual(response.code, 400)
+            self.assertIn("ZIP", json.load(response)["error"])
+        with patch("open_practice.npi_registry.urlopen", return_value=BytesIO(b'{"results":[]}')):
+            self.assertEqual(self.request(path, {"city": "Denver"}), {"matches": [], "limited": False})
+        with patch("open_practice.npi_registry.urlopen", side_effect=TimeoutError), self.assertRaises(HTTPError) as failed:
+            self.request(path, {"name": "Example Medical"})
+        with failed.exception as response:
+            self.assertEqual(response.code, 502)
 
     def test_archived_facility_preserves_appointment_history_and_can_be_restored(self):
         details = {"name": "Example Hospital", "facility_type": "hospital", "pos_code": "22", **SITE}

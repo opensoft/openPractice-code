@@ -187,23 +187,27 @@
     </section>
     <form id="facility-form" hidden>
       <input type="hidden" name="reference">
-      <label>NPI for this location
-        <input name="npi" type="text" inputmode="numeric" pattern="[0-9]{10}" maxlength="10"
-          autocomplete="off" aria-describedby="facility-npi-status" required>
-      </label>
+      <div class="facility-toolbar">
+        <label>NPI for this location
+          <input name="npi" type="text" inputmode="numeric" pattern="[0-9]{10}" maxlength="10"
+            autocomplete="off" aria-describedby="facility-npi-status">
+        </label>
+        <button type="button" id="lookup-facility-npi" aria-controls="facility-npi-results">Lookup</button>
+      </div>
       <div class="npi-feedback">
         <p id="facility-npi-status" role="status" hidden></p>
+        <ul id="facility-npi-results" class="facility-list" aria-label="NPI Registry matches" hidden></ul>
         <button type="button" id="apply-registry-details" hidden>Use registry details</button>
       </div>
       <label><span id="facility-type-label">Facility type</span>
-        <select name="facility_type" aria-labelledby="facility-type-label" required>
-          <option value="">Choose a facility type</option>
+        <select name="facility_type" aria-labelledby="facility-type-label">
+          <option value="">Unclassified</option>
         </select>
       </label>
       <fieldset id="hospital-setting-fields" class="field-group" disabled hidden>
         <label>Hospital setting
-          <select name="pos_code" required>
-            <option value="">Choose a hospital setting</option>
+          <select name="pos_code">
+            <option value="">Not recorded</option>
           </select>
         </label>
       </fieldset>
@@ -219,7 +223,7 @@
   </dialog>
   <template id="site-fields-template">
     <label>Location name <input name="name" type="text" maxlength="255" required></label>
-    <label>Legal operating name <input name="legal_name" type="text" maxlength="255" required></label>
+    <label>Legal operating name <input name="legal_name" type="text" maxlength="255"></label>
   </template>
   <template id="address-fields-template">
     <label>Street address <input name="street_address" type="text" maxlength="120" required></label>
@@ -239,14 +243,14 @@
       </select>
     </label>
     <fieldset id="contracted-pharmacy-fields" class="field-group" disabled hidden>
-      <legend>Contracted pharmacy</legend>
-      <p class="session-description">Enter the name, NPI, or both.</p>
-      <div class="form-row">
-        <label>Pharmacy name <input name="contract_pharmacy_name" type="text" maxlength="255"></label>
-        <label>Pharmacy NPI
-          <input name="contract_pharmacy_npi" type="text" inputmode="numeric" pattern="[0-9]{10}" maxlength="10">
-        </label>
-      </div>
+      <p id="previous-contract-pharmacy" class="session-description" hidden></p>
+      <label>Search pharmacies by name or NPI
+        <input id="contract-pharmacy-search" type="search" autocomplete="off">
+      </label>
+      <label><span id="contract-pharmacy-label">Contracted pharmacy</span>
+        <select name="contract_pharmacy_reference" aria-labelledby="contract-pharmacy-label"></select>
+      </label>
+      <button id="add-contract-pharmacy" type="button">Add pharmacy</button>
     </fieldset>
   </template>
 </body>

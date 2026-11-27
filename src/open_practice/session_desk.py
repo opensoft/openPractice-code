@@ -11,7 +11,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from uuid import uuid4
 
-from open_practice.npi_registry import NPI_PATTERN, RegistryUnavailable, lookup_facility
+from open_practice.npi_registry import NPI_PATTERN, RegistryUnavailable, lookup_facility, search_facilities
 
 
 STAGES = ("scheduled", "available", "ready", "started", "ended", "wrapped")
@@ -25,7 +25,7 @@ INSURANCE_FIELDS = (
     ("group_number", "insurance group number", 80),
 )
 CONTRACT_STATUSES = ("unknown", "no_contract", "contracted")
-CONTRACT_PHARMACY_FIELDS = ("contract_pharmacy_name", "contract_pharmacy_npi")
+LEGACY_CONTRACT_FIELDS = ("contract_pharmacy_name", "contract_pharmacy_npi")
 # CMS Place of Service Code Set for Professional Claims.
 FACILITY_TYPES = {
     "office": ("Office / clinic", "11"),
@@ -57,9 +57,18 @@ ADDRESS_FIELDS = (
     ("postal_code", "postal code", 15),
 )
 SITE_FIELDS = ("legal_name", "npi", *(key for key, _, _ in ADDRESS_FIELDS))
+NPI_SEARCH_FIELDS = (
+    ("name", "location name", FACILITY_NAME_LIMIT),
+    ("legal_name", "legal operating name", FACILITY_NAME_LIMIT),
+    ("facility_type", "facility type", 40),
+    *ADDRESS_FIELDS,
+)
 SITE_SELECT = """
-    SELECT f.*, d.legal_name, d.npi, d.street_address, d.address_line_2, d.city, d.region, d.postal_code
+    SELECT f.*, d.legal_name, d.npi, d.street_address, d.address_line_2, d.city, d.region, d.postal_code,
+        pharmacy.name AS linked_pharmacy_name, pharmacy_details.npi AS linked_pharmacy_npi
     FROM facilities f LEFT JOIN site_details d USING (reference)
+    LEFT JOIN facilities pharmacy ON pharmacy.reference = f.contract_pharmacy_reference
+    LEFT JOIN site_details pharmacy_details ON pharmacy_details.reference = pharmacy.reference
 """
 APPOINTMENT_SELECT = """
     SELECT a.*, p.first_name, p.last_name, p.date_of_birth, p.chart_reference,
@@ -69,7 +78,9 @@ APPOINTMENT_SELECT = """
         COALESCE(f.name, 'Patient home') AS facility_name,
         COALESCE(f.kind, 'home') AS location_kind, f.facility_type, f.hospital_pos_code,
         CASE WHEN f.facility_type IS NOT 'pharmacy' THEN f.contract_status END AS contract_status,
-        f.contract_pharmacy_name, f.contract_pharmacy_npi, h.living_arrangement,
+        f.contract_pharmacy_reference,
+        COALESCE(pharmacy.name, f.contract_pharmacy_name) AS contract_pharmacy_name,
+        COALESCE(pharmacy_details.npi, f.contract_pharmacy_npi) AS contract_pharmacy_npi, h.living_arrangement,
         COALESCE(d.street_address, h.street_address) AS street_address,
         COALESCE(d.address_line_2, h.address_line_2) AS address_line_2,
         COALESCE(d.city, h.city) AS city, COALESCE(d.region, h.region) AS region,
@@ -77,6 +88,8 @@ APPOINTMENT_SELECT = """
     FROM appointments a LEFT JOIN patients p ON a.patient = p.reference
     LEFT JOIN facilities f ON a.location = f.reference
     LEFT JOIN site_details d ON f.reference = d.reference
+    LEFT JOIN facilities pharmacy ON pharmacy.reference = f.contract_pharmacy_reference
+    LEFT JOIN site_details pharmacy_details ON pharmacy_details.reference = pharmacy.reference
     LEFT JOIN patient_homes h ON a.location = h.reference
 """
 APPOINTMENT_TABLE = """
@@ -121,6 +134,11 @@ def _facility_pos(facility_type, hospital_pos_code):
 
 def _facility(row):
     result = dict(row)
+    linked_name = result.pop("linked_pharmacy_name")
+    linked_npi = result.pop("linked_pharmacy_npi")
+    if result["contract_pharmacy_reference"]:
+        result["contract_pharmacy_name"] = linked_name
+        result["contract_pharmacy_npi"] = linked_npi
     result["pos_code"] = _facility_pos(result["facility_type"], result.pop("hospital_pos_code"))
     if result["facility_type"] == "pharmacy":
         result["contract_status"] = None
@@ -178,32 +196,35 @@ def _location_text(details, key, label, limit, *, optional=False):
     return value
 
 
-def _address_values(details):
+def _address_values(details, *, optional=False):
     return {
-        key: _location_text(details, key, label, limit, optional=key == "address_line_2")
+        key: _location_text(details, key, label, limit, optional=optional or key == "address_line_2")
         for key, label, limit in ADDRESS_FIELDS
     }
 
 
-def _contract_values(values, existing, facility_type):
+def _contract_values(connection, values, existing, facility_type):
     if facility_type == "pharmacy":
-        return None, None, None
+        return None, None, None, None
     old_status = existing["contract_status"] if existing else None
     status = values.get("contract_status", old_status or "unknown")
     if status not in CONTRACT_STATUSES:
         raise ValueError("Choose a contract status.")
     if status != "contracted":
-        return status, None, None
+        return status, None, None, None
 
-    pharmacy = {}
-    for field in CONTRACT_PHARMACY_FIELDS:
-        value = values.get(field, existing[field] if existing else None)
-        pharmacy[field] = "" if value is None else value
-    name = _location_text(pharmacy, "contract_pharmacy_name", "contracted pharmacy name", FACILITY_NAME_LIMIT, optional=True)
-    npi = _location_text(pharmacy, "contract_pharmacy_npi", "contracted pharmacy NPI", 10, optional=True)
-    if npi and not re.fullmatch(NPI_PATTERN, npi):
-        raise ValueError("Enter a 10-digit NPI for the contracted pharmacy.")
-    return status, name or None, npi or None
+    previous = existing["contract_pharmacy_reference"] if existing else None
+    reference = values.get("contract_pharmacy_reference", previous)
+    if reference is None or reference == "":
+        if existing and old_status == "contracted" and previous is None:
+            return status, None, *(existing[key] for key in LEGACY_CONTRACT_FIELDS)
+        return status, None, None, None
+    if not isinstance(reference, str) or connection.execute("""
+        SELECT 1 FROM facilities WHERE reference = ? AND facility_type = 'pharmacy'
+        AND (archived = 0 OR reference = ?)
+    """, (reference, previous)).fetchone() is None:
+        raise ValueError("Choose an active pharmacy from the facility directory.")
+    return status, reference, None, None
 
 
 def _insurance_values(details):
@@ -220,12 +241,16 @@ def _insurance_values(details):
     return coverage
 
 
-def _site_values(details):
-    legal_name = _location_text(details, "legal_name", "legal operating name", FACILITY_NAME_LIMIT)
-    npi = details.get("npi")
-    if not isinstance(npi, str) or not re.fullmatch(NPI_PATTERN, npi.strip()):
+def _site_values(values, existing):
+    details = {}
+    for key in SITE_FIELDS:
+        value = values.get(key, existing[key] if existing else None)
+        details[key] = "" if value is None else value
+    legal_name = _location_text(details, "legal_name", "legal operating name", FACILITY_NAME_LIMIT, optional=True)
+    npi = _location_text(details, "npi", "NPI", 10, optional=True)
+    if npi and not re.fullmatch(NPI_PATTERN, npi):
         raise ValueError("Enter a 10-digit NPI for the location.")
-    return {"legal_name": legal_name, "npi": npi.strip(), **_address_values(details)}
+    return {"legal_name": legal_name, "npi": npi, **_address_values(details, optional=True)}
 
 
 def _location_reference(value, kind):
@@ -256,6 +281,7 @@ class SessionDesk:
                     name TEXT NOT NULL UNIQUE COLLATE NOCASE,
                     kind TEXT NOT NULL,
                     contract_status TEXT,
+                    contract_pharmacy_reference TEXT REFERENCES facilities(reference),
                     contract_pharmacy_name TEXT,
                     contract_pharmacy_npi TEXT,
                     facility_type TEXT,
@@ -276,9 +302,13 @@ class SessionDesk:
                 """)
             if "hospital_pos_code" not in facility_columns:
                 connection.execute("ALTER TABLE facilities ADD COLUMN hospital_pos_code TEXT")
-            for field in CONTRACT_PHARMACY_FIELDS:
+            for field in LEGACY_CONTRACT_FIELDS:
                 if field not in facility_columns:
                     connection.execute(f"ALTER TABLE facilities ADD COLUMN {field} TEXT")
+            if "contract_pharmacy_reference" not in facility_columns:
+                connection.execute("""
+                    ALTER TABLE facilities ADD COLUMN contract_pharmacy_reference TEXT REFERENCES facilities(reference)
+                """)
             connection.execute("""
                 INSERT INTO facilities (reference, name, kind, facility_type)
                 VALUES ('clinic', 'Clinic', 'clinic', 'office'), ('alf', 'Assisted living facility', 'alf', 'alf')
@@ -440,21 +470,29 @@ class SessionDesk:
             if reference and existing is None:
                 raise ValueError("Choose a registered facility.")
             facility_type = values.get("facility_type", existing["facility_type"] if existing else None)
-            keep_unclassified = existing is not None and "facility_type" not in values and facility_type is None
-            if not keep_unclassified and (not isinstance(facility_type, str) or facility_type not in FACILITY_TYPES):
+            if facility_type == "":
+                facility_type = None
+            if facility_type is not None and (not isinstance(facility_type, str) or facility_type not in FACILITY_TYPES):
                 raise ValueError("Choose a facility type.")
+            if existing and existing["facility_type"] == "pharmacy" and facility_type != "pharmacy":
+                if connection.execute(
+                    "SELECT 1 FROM facilities WHERE contract_pharmacy_reference = ? LIMIT 1", (reference,),
+                ).fetchone():
+                    raise ValueError("Remove this pharmacy from the facilities that use it before changing its type.")
             hospital_pos_code = None
             if facility_type == "hospital":
-                if "pos_code" not in values and existing and existing["facility_type"] == "hospital":
-                    hospital_pos_code = existing["hospital_pos_code"]
-                else:
-                    hospital_pos_code = values.get("pos_code")
-                    if not isinstance(hospital_pos_code, str) or hospital_pos_code not in HOSPITAL_SETTINGS:
-                        raise ValueError("Choose a hospital setting for the place of service.")
+                previous_pos = existing["hospital_pos_code"] if existing else None
+                hospital_pos_code = values.get("pos_code", previous_pos)
+                if hospital_pos_code == "":
+                    hospital_pos_code = None
+                if hospital_pos_code is not None and (
+                    not isinstance(hospital_pos_code, str) or hospital_pos_code not in HOSPITAL_SETTINGS
+                ):
+                    raise ValueError("Choose a valid hospital setting for the place of service.")
             kind = "clinic" if facility_type == "office" else "alf"
             name = _location_text(values, "name", "location name", FACILITY_NAME_LIMIT)
-            contract = _contract_values(values, existing, facility_type)
-            details = _site_values(values) if not reference or any(key in values for key in SITE_FIELDS) else {}
+            contract = _contract_values(connection, values, existing, facility_type)
+            details = _site_values(values, existing) if not reference or any(key in values for key in SITE_FIELDS) else {}
             same_name = connection.execute(SITE_SELECT + " WHERE f.name = ?", (name,)).fetchone()
             if same_name is not None and same_name["reference"] != reference:
                 if same_name["archived"]:
@@ -462,19 +500,22 @@ class SessionDesk:
                 saved = _facility(same_name)
                 if (not reference and saved["facility_type"] == facility_type
                         and same_name["hospital_pos_code"] == hospital_pos_code
-                        and (saved["contract_status"], *(saved[key] for key in CONTRACT_PHARMACY_FIELDS)) == contract
-                        and all(saved[key] == value for key, value in details.items())):
+                        and (saved["contract_status"], same_name["contract_pharmacy_reference"],
+                             *(same_name[key] for key in LEGACY_CONTRACT_FIELDS)) == contract
+                        and all((saved[key] or "") == value for key, value in details.items())):
                     return saved
                 raise ValueError("That location name is already in use. Choose the saved location or use a different name.")
             reference = reference or f"{kind}-{uuid4().hex}"
             connection.execute("""
                 INSERT INTO facilities (
                     reference, name, kind, facility_type, hospital_pos_code,
-                    contract_status, contract_pharmacy_name, contract_pharmacy_npi
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    contract_status, contract_pharmacy_reference, contract_pharmacy_name, contract_pharmacy_npi
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (reference) DO UPDATE SET name = excluded.name, kind = excluded.kind,
                     contract_status = excluded.contract_status, facility_type = excluded.facility_type,
-                    hospital_pos_code = excluded.hospital_pos_code, contract_pharmacy_name = excluded.contract_pharmacy_name,
+                    hospital_pos_code = excluded.hospital_pos_code,
+                    contract_pharmacy_reference = excluded.contract_pharmacy_reference,
+                    contract_pharmacy_name = excluded.contract_pharmacy_name,
                     contract_pharmacy_npi = excluded.contract_pharmacy_npi
             """, (reference, name, kind, facility_type, hospital_pos_code, *contract))
             if details:
@@ -673,7 +714,9 @@ def make_server(desk, port=17824):
             advance = re.fullmatch(r"/api/appointments/([1-9][0-9]{0,17})/advance", self.path)
             insurance = re.fullmatch(rf"/api/patients/{PATIENT_REFERENCE}/insurance", self.path)
             facility_action = re.fullmatch(r"/api/facilities/(clinic|(?:clinic|alf)-[0-9a-f]{32})/(archive|restore)", self.path)
-            if self.path not in ("/api/appointments", "/api/facilities") and not (advance or insurance or facility_action):
+            if self.path not in ("/api/appointments", "/api/facilities", "/api/facilities/npi/search") and not (
+                advance or insurance or facility_action
+            ):
                 self.respond(HTTPStatus.NOT_FOUND, {"error": "Page not found."})
                 return
             try:
@@ -691,6 +734,11 @@ def make_server(desk, port=17824):
                     result = desk.set_facility_archived(facility_action[1], facility_action[2] == "archive")
                 elif self.path == "/api/facilities":
                     result = desk.save_facility(values)
+                elif self.path == "/api/facilities/npi/search":
+                    result = search_facilities({
+                        key: _location_text(values, key, label, limit, optional=True)
+                        for key, label, limit in NPI_SEARCH_FIELDS
+                    })
                 else:
                     result = desk.book(values)
             except TransitionConflict as error:
@@ -699,6 +747,8 @@ def make_server(desk, port=17824):
                 self.respond(HTTPStatus.NOT_FOUND, {"error": error.args[0]})
             except ValueError as error:
                 self.respond(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+            except RegistryUnavailable as error:
+                self.respond(HTTPStatus.BAD_GATEWAY, {"error": str(error)})
             else:
                 self.respond(HTTPStatus.OK, result)
 

@@ -4,7 +4,7 @@ const contractLabels = { unknown: "Unknown", no_contract: "No contract", contrac
 const livingLabels = { alone: "Lives alone", with_caregiver: "Lives with a caregiver" };
 const addressFields = ["street_address", "address_line_2", "city", "region", "postal_code"];
 const siteDetails = ["legal_name", "npi", ...addressFields];
-const contractPharmacyFields = ["contract_pharmacy_name", "contract_pharmacy_npi"];
+const npiSearchFields = ["name", "legal_name", "facility_type", ...addressFields];
 const patientFields = ["first_name", "last_name", "date_of_birth", "chart_reference"];
 const insuranceFields = {
   payer_name: "Payer", member_id: "Member ID", plan_name: "Plan",
@@ -45,7 +45,9 @@ const facilityForm = get("facility-form");
 const facilityType = facilityForm.elements.facility_type;
 const hospitalSetting = facilityForm.elements.pos_code;
 const facilityNpi = facilityForm.elements.npi;
+const npiLookupButton = get("lookup-facility-npi");
 const npiStatus = get("facility-npi-status");
+const npiResults = get("facility-npi-results");
 const applyRegistryDetails = get("apply-registry-details");
 const facilityTypeLabels = {};
 let hospitalSettingLabels = {};
@@ -67,17 +69,23 @@ let newLocationReference;
 let locationRequest = 0;
 let lastBookingLocation = "";
 let facilityHandoff = null;
+let contractPharmacyDraft = null;
 let selectedFacilityReference = null;
 let facilityBusy = false;
 let npiLookupTimer;
 let npiLookupController;
+let npiSearchingByDetails = false;
 let matchedFacilityFields = null;
 const npiAutofilled = new Map();
 
 for (const group of ["site", "address", "contract"]) {
   get(`facility-${group}-fields`).append(get(`${group}-fields-template`).content.cloneNode(true));
 }
+for (const key of addressFields) facilityForm.elements[key].required = false;
 const contractStatus = facilityForm.elements.contract_status;
+const contractPharmacy = facilityForm.elements.contract_pharmacy_reference;
+const contractPharmacySearch = get("contract-pharmacy-search");
+const previousContractPharmacy = get("previous-contract-pharmacy");
 get("booking-address-fields").append(get("address-fields-template").content.cloneNode(true));
 for (const target of ["booking-insurance-fields", "insurance-edit-fields"]) {
   get(target).append(get("insurance-fields-template").content.cloneNode(true));
@@ -644,23 +652,24 @@ function showFacilityDetails(reference) {
 function showFacilityEditor(facility = null) {
   resetNpiLookup();
   facilityForm.reset();
+  const editing = Boolean(facility?.reference);
   facilityForm.elements.reference.value = facility?.reference ?? "";
   facilityType.value = facility?.facility_type ?? "";
+  facilityType.disabled = Boolean(contractPharmacyDraft);
   hospitalSetting.value = facility?.facility_type === "hospital" ? facility.pos_code ?? "" : "";
   facilityForm.elements.name.value = facility?.name ?? "";
   contractStatus.value = facility?.contract_status ?? "unknown";
-  for (const key of contractPharmacyFields) {
-    facilityForm.elements[key].value = facility?.[key] ?? "";
-  }
+  const previousPharmacy = !facility?.contract_pharmacy_reference && [
+    facility?.contract_pharmacy_name, facility?.contract_pharmacy_npi,
+  ].filter(Boolean).join(" · ");
+  previousContractPharmacy.textContent = previousPharmacy ? `Previously recorded: ${previousPharmacy}` : "";
+  updateContractPharmacyOptions(facility?.contract_pharmacy_reference ?? "");
   for (const key of siteDetails) {
     facilityForm.elements[key].value = facility?.[key] ?? "";
-    if (key !== "address_line_2") {
-      facilityForm.elements[key].required = !facility || Boolean(facility.legal_name);
-    }
   }
   updateFacilityTypeFields();
   showError(get("facility-error"), "");
-  showFacilityView("editor", facility ? "Edit facility" : "New facility");
+  showFacilityView("editor", contractPharmacyDraft ? "New pharmacy" : editing ? "Edit facility" : "New facility");
   facilityNpi.focus();
 }
 
@@ -671,22 +680,60 @@ function updateFacilityTypeFields() {
   toggleFields(get("contracted-pharmacy-fields"), hasContractField && contractStatus.value === "contracted");
 }
 
+function updateContractPharmacyOptions(selected = contractPharmacy.value) {
+  const query = contractPharmacySearch.value.trim().toLowerCase();
+  const pharmacies = facilities.filter((facility) => {
+    if (facility.facility_type !== "pharmacy") return false;
+    if (facility.reference === selected) return true;
+    return !facility.archived && [facility.name, facility.legal_name, facility.npi]
+      .some((value) => value?.toLowerCase().includes(query));
+  });
+  contractPharmacy.replaceChildren(
+    new Option(pharmacies.length ? "Choose a pharmacy" : "No pharmacies found", ""),
+    ...pharmacies.map((pharmacy) => new Option(
+      [pharmacy.name, pharmacy.npi && `NPI ${pharmacy.npi}`, pharmacy.archived && "Archived"]
+        .filter(Boolean).join(" · "), pharmacy.reference,
+    )),
+  );
+  if (pharmacies.some((pharmacy) => pharmacy.reference === selected)) contractPharmacy.value = selected;
+  previousContractPharmacy.hidden = Boolean(contractPharmacy.value) || !previousContractPharmacy.textContent;
+}
+
+function returnToContractFacility(pharmacy = null) {
+  const { fields, search } = contractPharmacyDraft;
+  contractPharmacyDraft = null;
+  showFacilityEditor({
+    ...fields,
+    contract_pharmacy_reference: pharmacy?.reference ?? fields.contract_pharmacy_reference,
+  });
+  contractPharmacySearch.value = pharmacy ? "" : search;
+  updateContractPharmacyOptions();
+  contractPharmacy.focus();
+}
+
 function setNpiStatus(message) {
   npiStatus.textContent = message;
   npiStatus.hidden = !message;
 }
 
-function resetNpiLookup() {
+function cancelNpiLookup() {
   clearTimeout(npiLookupTimer);
   npiLookupController?.abort();
-  matchedFacilityFields = null;
-  npiAutofilled.clear();
-  applyRegistryDetails.hidden = true;
+  npiSearchingByDetails = false;
+  npiResults.replaceChildren();
+  npiResults.hidden = true;
   setNpiStatus("");
 }
 
+function resetNpiLookup() {
+  cancelNpiLookup();
+  matchedFacilityFields = null;
+  npiAutofilled.clear();
+  applyRegistryDetails.hidden = true;
+}
+
 function updateRegistryButton() {
-  applyRegistryDetails.hidden = !matchedFacilityFields || !Object.entries(matchedFacilityFields).some(([key, value]) =>
+  applyRegistryDetails.hidden = npiSearchingByDetails || !matchedFacilityFields || !Object.entries(matchedFacilityFields).some(([key, value]) =>
     key !== "facility_type" && facilityForm.elements[key].value.trim() !== value
   );
 }
@@ -726,11 +773,61 @@ async function lookUpNpi(npi, signal) {
   }
 }
 
-facilityNpi.addEventListener("input", () => {
+function clearRegistryAutofill() {
   for (const [key, value] of npiAutofilled) {
     const input = facilityForm.elements[key];
     if (input.value === value) input.value = "";
   }
+}
+
+function selectRegistryMatch({ npi, fields }) {
+  clearRegistryAutofill();
+  resetNpiLookup();
+  facilityNpi.value = npi;
+  matchedFacilityFields = fields;
+  fillFromRegistry();
+  setNpiStatus("NPI selected. Review the facility details before saving.");
+  facilityNpi.focus();
+}
+
+npiLookupButton.addEventListener("click", async () => {
+  cancelNpiLookup();
+  npiSearchingByDetails = true;
+  updateRegistryButton();
+  const controller = new AbortController();
+  npiLookupController = controller;
+  const criteria = Object.fromEntries(npiSearchFields.map((key) => [key, facilityForm.elements[key].value.trim()]));
+  setNpiStatus("Searching the NPI Registry…");
+  try {
+    const { matches, limited } = await api("/api/facilities/npi/search", criteria, controller.signal);
+    if (controller.signal.aborted) return;
+    const rows = matches.map((match) => {
+      const { fields, npi } = match;
+      const name = fields.name || fields.legal_name;
+      const address = locationAddress(fields);
+      const detail = [fields.legal_name !== name && fields.legal_name, address].filter(Boolean).join(" · ");
+      const row = document.createElement("li");
+      row.innerHTML = `<button type="button">
+        <strong>${escapeHTML([name, `NPI ${npi}`].filter(Boolean).join(" · "))}</strong>
+        <small>${escapeHTML(detail || "Practice address unavailable")}</small>
+      </button>`;
+      row.firstElementChild.addEventListener("click", () => selectRegistryMatch(match));
+      return row;
+    });
+    npiResults.replaceChildren(...rows);
+    npiResults.hidden = !rows.length;
+    if (!rows.length) {
+      setNpiStatus("No matching organizations found. Try refining the name or address.");
+    } else {
+      setNpiStatus(limited ? "Choose an NPI or refine the search for more specific results." : "Choose the NPI for this location.");
+    }
+  } catch (error) {
+    if (!controller.signal.aborted) setNpiStatus(error.message);
+  }
+});
+
+facilityNpi.addEventListener("input", () => {
+  clearRegistryAutofill();
   resetNpiLookup();
   updateFacilityTypeFields();
   const npi = facilityNpi.value.trim();
@@ -740,7 +837,10 @@ facilityNpi.addEventListener("input", () => {
   npiLookupController = controller;
   npiLookupTimer = setTimeout(() => lookUpNpi(npi, controller.signal), 300);
 });
-facilityForm.addEventListener("input", updateRegistryButton);
+facilityForm.addEventListener("input", (event) => {
+  if (npiSearchingByDetails && npiSearchFields.includes(event.target.name)) cancelNpiLookup();
+  updateRegistryButton();
+});
 applyRegistryDetails.addEventListener("click", () => {
   fillFromRegistry(true);
   setNpiStatus("Registry details applied. Review the practice address before saving.");
@@ -750,12 +850,15 @@ applyRegistryDetails.addEventListener("click", () => {
 function openFacilities() {
   selectedFacilityReference = null;
   facilityDialog.showModal();
-  if (facilityHandoff) showFacilityEditor();
+  if (facilityHandoff) showFacilityEditor({ facility_type: locationType.value === "clinic" ? "office" : "" });
   else showFacilityList();
 }
 
 get("manage-facilities").addEventListener("click", openFacilities);
-get("close-facilities").addEventListener("click", () => facilityDialog.close());
+get("close-facilities").addEventListener("click", () => {
+  if (contractPharmacyDraft) returnToContractFacility();
+  else facilityDialog.close();
+});
 facilitySearch.addEventListener("input", renderFacilityList);
 facilityTypeFilter.addEventListener("change", renderFacilityList);
 facilityStatusFilter.addEventListener("change", renderFacilityList);
@@ -770,6 +873,17 @@ get("edit-facility").addEventListener("click", () => {
 });
 facilityType.addEventListener("change", updateFacilityTypeFields);
 contractStatus.addEventListener("change", updateFacilityTypeFields);
+contractPharmacySearch.addEventListener("input", () => updateContractPharmacyOptions());
+contractPharmacy.addEventListener("change", () => updateContractPharmacyOptions());
+get("add-contract-pharmacy").addEventListener("click", () => {
+  const fields = Object.fromEntries(new FormData(facilityForm));
+  const current = facilities.find((facility) => facility.reference === fields.reference);
+  const search = contractPharmacySearch.value;
+  contractPharmacyDraft = { fields: { ...current, ...fields }, search };
+  const npi = /^[0-9]{10}$/.test(search.trim()) ? search.trim() : "";
+  showFacilityEditor({ facility_type: "pharmacy", npi });
+  if (npi) facilityNpi.dispatchEvent(new Event("input"));
+});
 facilityDialog.addEventListener("close", () => {
   resetNpiLookup();
   if (!facilityHandoff) return;
@@ -783,21 +897,22 @@ facilityDialog.addEventListener("close", () => {
 facilityDialog.addEventListener("cancel", (event) => {
   if (facilityBusy) {
     event.preventDefault();
-  } else if (!facilityHandoff && !facilityForm.hidden) {
+  } else if ((contractPharmacyDraft || !facilityHandoff) && !facilityForm.hidden) {
     event.preventDefault();
     cancelFacilityEditor();
   }
 });
 
 function cancelFacilityEditor() {
-  if (facilityHandoff) facilityDialog.close();
+  if (contractPharmacyDraft) returnToContractFacility();
+  else if (facilityHandoff) facilityDialog.close();
   else if (facilityForm.elements.reference.value) showFacilityDetails(facilityForm.elements.reference.value);
   else showFacilityList();
 }
 
 function setFacilityBusy(busy) {
   facilityBusy = busy;
-  for (const id of ["close-facilities", "cancel-facility", "facility-back", "edit-facility", "change-facility-status", "apply-registry-details"]) {
+  for (const id of ["close-facilities", "cancel-facility", "facility-back", "edit-facility", "change-facility-status", "apply-registry-details", "add-contract-pharmacy", "lookup-facility-npi"]) {
     get(id).disabled = busy;
   }
   facilityForm.querySelector('[type="submit"]').disabled = busy;
@@ -826,12 +941,12 @@ facilityForm.addEventListener("submit", async (event) => {
   showError(get("facility-error"), "");
   try {
     const values = Object.fromEntries(new FormData(facilityForm));
-    if (values.reference && siteDetails.every((key) => !values[key].trim())) {
-      for (const key of siteDetails) delete values[key];
-    }
+    if (contractPharmacyDraft) values.facility_type = "pharmacy";
     const saved = await api("/api/facilities", values);
     await refresh();
-    if (facilityHandoff) {
+    if (contractPharmacyDraft) {
+      returnToContractFacility(saved);
+    } else if (facilityHandoff) {
       facilityHandoff.saved = saved;
       facilityDialog.close();
     } else {

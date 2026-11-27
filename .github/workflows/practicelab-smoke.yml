@@ -86,7 +86,7 @@ jobs:
               --db-root-password "$PRACTICELAB_DB_ROOT_PASSWORD" --admin-password "$PRACTICELAB_SMOKE_PASSWORD"
             bench --site openhr.localhost install-app erpnext
             bench --site openhr.localhost install-app hrms
-            bench --site openhr.localhost execute open_practice.practicelab_onboarding_smoke.configure_openhr
+            env/bin/python -m open_practice.practicelab_onboarding_smoke configure-openhr openhr.localhost
             bench --site practicelab.localhost execute open_practice.practicelab_onboarding_smoke.configure_practicelab
           '
           docker exec -d practice bash -c \
@@ -99,3 +99,10 @@ jobs:
           fi
       - name: Verify practice create, link, and lost response in the browser
         run: python deploy/practicelab/onboarding_smoke.py
+
+      - name: Collect disposable site diagnostics
+        if: failure()
+        run: |
+          docker exec practice sh -c 'for log in /tmp/frappe-http.log /tmp/openhr-http.log /tmp/openhr-proxy.log; do
+            if test -f "$log"; then tail -45 "$log"; fi
+          done'

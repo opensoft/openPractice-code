@@ -67,3 +67,28 @@ def configure_practicelab():
     update_site_config("open_practice_openhr_test_http", 1)
     token = os.environ["PRACTICELAB_COMPANY_KEY"] + ":" + os.environ["PRACTICELAB_COMPANY_SECRET"]
     update_site_config("open_practice_openhr_token", token)
+
+
+def main():
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("action", choices=("configure-openhr", "install-request-field"))
+    parser.add_argument("site")
+    args = parser.parse_args()
+
+    frappe.init(site=args.site, sites_path="sites")
+    frappe.connect()
+    try:
+        frappe.set_user("Administrator")
+        if args.action == "configure-openhr":
+            configure_openhr()
+        else:
+            install_request_field()
+        frappe.db.commit()
+    finally:
+        frappe.destroy()
+
+
+if __name__ == "__main__":
+    main()

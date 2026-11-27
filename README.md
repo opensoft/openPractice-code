@@ -50,6 +50,29 @@ fresh synthetic site. It signs in as the scheduler, books a visit, verifies
 each transition through **Ready for billing**, and reads the saved state
 after reloading the page.
 
+### New Practice and openHR
+
+Invite the first practice user as a Frappe Website User with the **OpenPractice
+Practice Administrator** role. The user signs in at `/new-practice`. The first
+release allows one practice setup per invited administrator.
+
+Use a dedicated synthetic openHR site. Its `Company` DocType must have the
+unique `custom_openpractice_request_id` Data field before enabling connection.
+On that site, an operator can initialize the field once with
+`env/bin/python -m open_practice.practicelab_onboarding_smoke install-request-field <openhr-site>`
+from a bench where the `open_practice` Python package is available. Verify that
+the target field has a database unique index. Give the PracticeLab service
+identity read and create access to Company on that site. Set
+`open_practice_openhr_url` to the target HTTPS origin and supply
+`open_practice_openhr_token` from the deployment's secret store. Country and
+currency default to United States and USD and can be set per site with
+`open_practice_openhr_country` and `open_practice_openhr_currency`.
+
+The PracticeLab GitHub test runs a separate openHR fork site and injects a lost
+response after the target commits a synthetic creation. It reads Company back
+over REST to confirm the link and deduplication. The fault proxy is specific to
+the disposable acceptance environment.
+
 ## ClaimLab sandbox
 
 Upload a synthetic 837P with `ISA15=T` to see simulated TA1, 999, and

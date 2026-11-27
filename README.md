@@ -112,3 +112,11 @@ to Python.
 ```powershell
 python -m unittest -v open_practice.tests.test_openhr_native.OpenHRNativeSiteAcceptanceTest
 ```
+
+The suite includes a two-company case that uses the same shift location, shift
+type and work date for separate rosters. Run it on its own with the same
+test-site environment.
+
+```powershell
+python -m unittest -v open_practice.tests.test_openhr_native.OpenHRNativeSiteAcceptanceTest.test_t26_keeps_overlapping_companies_isolated
+```

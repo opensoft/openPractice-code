@@ -9,4 +9,5 @@ RUN if [ "$INCLUDE_OPENHR" = "1" ]; then \
       env/bin/pip install -e apps/hrms; \
     fi
 COPY --chown=1000:1000 . apps/open_practice/
-RUN env/bin/pip install --no-deps -e apps/open_practice
+RUN env/bin/pip install --no-deps -e apps/open_practice \
+    && ln -s /home/frappe/frappe-bench/apps/open_practice/src/open_practice/public assets/open_practice

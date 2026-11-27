@@ -18,6 +18,8 @@ def _require_disposable(site):
 def configure_openhr():
     _require_disposable("openhr.localhost")
     install_request_field()
+    if not frappe.db.exists("Warehouse Type", "Transit"):
+        frappe.get_doc({"doctype": "Warehouse Type", "name": "Transit"}).insert()
     company = frappe.get_doc({
         "doctype": "Company",
         "company_name": "Synthetic Group LLC",

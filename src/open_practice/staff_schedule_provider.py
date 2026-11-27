@@ -10,7 +10,7 @@ CONTRACT = "openpractice-staff-schedule-provider/1.0"
 CORRELATION_ID = re.compile(r"[0-9a-f]{12}4[0-9a-f]{3}[89ab][0-9a-f]{15}")
 
 
-def _message(kind, data):
+def provider_message(kind, data):
     return {"contract": CONTRACT, "kind": kind, "data": data}
 
 
@@ -54,7 +54,7 @@ class OpenShiftRequest:
             raise ValueError("A coverage request needs a positive headcount.")
 
     def as_provider_message(self) -> dict:
-        return _message("open_shift_request", {
+        return provider_message("open_shift_request", {
             "correlation_id": self.correlation_id,
             "location": self.location,
             "role": self.role,
@@ -97,7 +97,7 @@ class StaffScheduleEvidence:
                 "worked_intervals": [assignment_fields(item) for item in self.attendance.worked_intervals],
                 "unresolved_exceptions": list(self.attendance.unresolved_exceptions),
             }
-        return _message("staffing", {
+        return provider_message("staffing", {
             "roster_series": roster_series,
             "published": _snapshot_fields(self.published),
             "revisions": [_snapshot_fields(item) for item in self.revisions],
@@ -110,7 +110,7 @@ class StaffScheduleEvidence:
 
     def open_shift_message(self, request: OpenShiftRequest) -> dict:
         status = self.coverage_status(request)
-        return _message("open_shift_state", {
+        return provider_message("open_shift_state", {
             "request": request.as_provider_message()["data"],
             "status": status,
             "roster_reference": self.current.reference if status == "confirmed" else None,

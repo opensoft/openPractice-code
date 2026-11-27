@@ -112,3 +112,59 @@ to Python.
 ```powershell
 python -m unittest -v open_practice.tests.test_openhr_native.OpenHRNativeSiteAcceptanceTest
 ```
+
+## QuickBooks Time scheduling adapter
+
+`QuickBooksTimeAdapter` uses the documented QuickBooks Time (TSheets) v1
+API. It reads published shifts, scoped workers and qualifications, timed
+approved leave, and timecard evidence through the shared 1.0 contract.
+It posts an unassigned draft for a coverage request and waits for the
+provider's published assignment. Intuit is moving the classic Time
+experience into QuickBooks Online. Confirm that the tenant can use the
+documented Time v1 endpoints before connecting it. [QuickBooks Time API
+reference](https://tsheetsteam.github.io/api_docs/) · [Intuit migration
+notice](https://quickbooks.intuit.com/learn-support/en-us/help-article/time-tracking/classic-quickbooks-time-moving-quickbooks-online/L5tnv0Sms_US_en_US)
+
+Configure one calendar, workforce job-code mapping and account time zone per
+roster series. Supply the account's authorized workforce mapping by QuickBooks
+user ID. Each entry maps to one staff reference, role, qualification, skill
+level and a credential expiry date or an explicitly nonexpiring credential.
+A scheduled assignment counts only when the mapped worker's qualification
+matches the job code and is valid through the end of the shift.
+
+Pass an account-scoped bearer-token supplier to `QuickBooksTimeClient`.
+The application owns OAuth authorization, token renewal and storage. The
+Time v1 authorization is separate from the QuickBooks accounting connection.
+The client sends the bearer token only to the documented API origin or to the
+loopback fixture when explicitly configured. [Time v1 OAuth
+documentation](https://tsheetsteam.github.io/api_docs/#authentication)
+
+Keep one durable local SQLite history file per account, calendar and roster
+series. Capture the published baseline with `get_staffing(series)` before
+processing day-of changes. This freezes the first successful observation.
+Later observations append revisions, and restarts read the same history.
+A repeated request with the same correlation ID is idempotent. A retry
+after an ambiguous create looks for the corresponding provider event and
+keeps the request unresolved when the provider has yet to return it. Only a
+published, qualified assignment counts as confirmation. [Schedule events
+reference](https://tsheetsteam.github.io/api_docs/#schedule-events)
+
+`get_workers(window)`, `get_leave(window)`, and `get_clock_events(window)`
+return canonical messages. Date-only leave lacks an exact window and returns
+an unavailable-feed error when it affects the requested dates. Clock events
+reflect the boundaries of regular timecards. For approved attendance,
+the adapter requires closed, timed entries within the worker's
+`approved_to` date. Manual duration entries and unfinished or unapproved
+timecards remain unresolved in the reconciliation. [Time off request
+entries](https://tsheetsteam.github.io/api_docs/#time-off-request-entries) ·
+[Timesheet approval fields](https://tsheetsteam.github.io/api_docs/#the-timesheet-object)
+
+After setting up the shared conformance environment above, run the synthetic
+QuickBooks Time acceptance suite from the assembly checkout.
+
+```powershell
+python -m unittest -v open_practice.tests.test_quickbooks_time_adapter
+```
+
+The tests use a loopback HTTP fixture with synthetic workforce records and
+exercise the same conformance checks as the openHR T-26 tests.

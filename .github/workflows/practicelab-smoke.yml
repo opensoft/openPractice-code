@@ -47,7 +47,7 @@ jobs:
             bench set-config -g redis_socketio redis://redis:6379/2
             printf "%s\n" frappe open_practice > sites/apps.txt
             mkdir -p sites/assets
-            ln -s /home/frappe/frappe-bench/apps/open_practice/src/open_practice/public sites/assets/open_practice
+            ln -sfn /home/frappe/frappe-bench/apps/open_practice/src/open_practice/public sites/assets/open_practice
             bench new-site practicelab.localhost --mariadb-user-host-login-scope="%" \
               --db-root-password "$PRACTICELAB_DB_ROOT_PASSWORD" --admin-password "$PRACTICELAB_SMOKE_PASSWORD"
             bench --site practicelab.localhost set-config -p open_practice_practicelab 1

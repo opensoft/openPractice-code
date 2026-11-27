@@ -91,12 +91,18 @@ jobs:
           '
           docker exec -d practice bash -c \
             'bench --site openhr.localhost serve --port 8010 --noreload >/tmp/openhr-http.log 2>&1'
+          docker cp deploy/practicelab/openhr_fault_proxy.py practice:/tmp/openhr_fault_proxy.py
           docker exec -d practice bash -c \
-            'env/bin/python apps/open_practice/deploy/practicelab/openhr_fault_proxy.py >/tmp/openhr-proxy.log 2>&1'
+            'env/bin/python /tmp/openhr_fault_proxy.py >/tmp/openhr-proxy.log 2>&1'
           if ! curl -fsS --retry 15 --retry-all-errors --retry-delay 2 "http://127.0.0.1:8010/api/method/ping"; then
             docker exec practice tail -60 /tmp/openhr-http.log
             exit 1
           fi
+          docker exec -e PRACTICELAB_COMPANY_KEY -e PRACTICELAB_COMPANY_SECRET practice bash -euc '
+            curl -fsS --retry 10 --retry-all-errors --retry-delay 1 \
+              -H "Authorization: token $PRACTICELAB_COMPANY_KEY:$PRACTICELAB_COMPANY_SECRET" \
+              "http://127.0.0.1:8011/api/resource/Company" >/dev/null
+          '
       - name: Verify practice create, link, and lost response in the browser
         run: python deploy/practicelab/onboarding_smoke.py
 

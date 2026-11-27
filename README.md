@@ -73,6 +73,13 @@ response after the target commits a synthetic creation. It reads Company back
 over REST to confirm the link and deduplication. The fault proxy is specific to
 the disposable acceptance environment.
 
+For the hosted rehearsal, run the same browser script with
+`PRACTICELAB_URL` pointing to the QA site and
+`PRACTICELAB_OPENHR_TEST_URL` pointing directly to its native openHR target
+for readback. Seed the dedicated synthetic users and group Company first.
+Use an isolated QA fault proxy for the lost-response case, so it exercises
+the same disconnect path without changing either production service.
+
 ## ClaimLab sandbox
 
 Upload a synthetic 837P with `ISA15=T` to see simulated TA1, 999, and

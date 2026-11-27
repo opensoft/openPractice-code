@@ -77,7 +77,8 @@ def main():
     parser.add_argument("site")
     args = parser.parse_args()
 
-    frappe.init(site=args.site, sites_path="sites")
+    os.chdir("sites")
+    frappe.init(site=args.site)
     frappe.connect()
     try:
         frappe.set_user("Administrator")

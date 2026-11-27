@@ -9,7 +9,7 @@ from playwright.sync_api import expect, sync_playwright
 
 
 PRACTICE = os.environ["PRACTICELAB_URL"].rstrip("/")
-OPENHR = "http://127.0.0.1:8010"
+OPENHR = os.environ.get("PRACTICELAB_OPENHR_TEST_URL", "http://127.0.0.1:8010").rstrip("/")
 API = "/api/method/open_practice.frappe_practice_onboarding."
 COMPANY = "/api/resource/Company"
 REQUEST_FIELD = "custom_openpractice_request_id"

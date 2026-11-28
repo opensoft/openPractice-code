@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ClaimLab Sandbox</title>
   <link rel="stylesheet" href="/styles.css">
+  <link rel="service-doc" type="text/html" href="/agents">
+  <link rel="service-desc" type="application/json" href="/openapi.json">
   <script src="/app.js" defer></script>
 </head>
 <body>
@@ -14,6 +16,7 @@
       <nav aria-label="Primary">
         <a href="#upload">Upload</a>
         <a href="#api">API</a>
+        <a href="/agents">Agent guide</a>
       </nav>
     </div>
   </header>
@@ -89,9 +92,10 @@
         <h2 id="api-title">API</h2>
         <button type="button" id="copy-button">Copy commands</button>
       </div>
-      <p>Send raw X12 bytes. The response contains the same simulated results in JSON.</p>
-      <pre><code id="api-example">curl -o accepted.837 http://127.0.0.1:8765/api/v1/examples/accepted.837
-curl --data-binary @accepted.837 -H "Content-Type: application/edi-x12" http://127.0.0.1:8765/api/v1/validate</code></pre>
+      <p>Send raw X12 bytes to get the same simulated results in JSON. See the
+        <a href="/agents">agent guide</a> and <a href="/openapi.json">OpenAPI specification</a>.</p>
+      <pre><code id="api-example">curl -o accepted.837 https://claimlab.opensoft.dev/api/v1/examples/accepted.837
+curl --data-binary @accepted.837 -H "Content-Type: application/edi-x12" https://claimlab.opensoft.dev/api/v1/validate</code></pre>
     </section>
   </main>
 </body>

@@ -1,5 +1,6 @@
 {
   "platform": {"apiRuntime": "python:3.11"},
+  "routes": [{"route": "/agents", "rewrite": "/agents.html"}],
   "globalHeaders": {
     "Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'",
     "X-Content-Type-Options": "nosniff",

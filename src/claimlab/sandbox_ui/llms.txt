@@ -1,0 +1,14 @@
+# ClaimLab
+
+> Public simulator for synthetic X12 837P professional claims. It returns JSON summaries of TA1, 999, and 277CA checks.
+
+Use synthetic data with ISA15=T. Send raw ASCII bytes up to 1 MiB to
+POST https://claimlab.opensoft.dev/api/v1/validate with Content-Type
+application/edi-x12. No credentials are required. HTTP 200 means the
+simulation ran. Inspect accepted and the acknowledgment fields for results.
+
+## API
+
+- [Agent guide](https://claimlab.opensoft.dev/agents): Request examples and acknowledgment fields.
+- [OpenAPI specification](https://claimlab.opensoft.dev/openapi.json): Machine-readable API contract.
+- [Passing synthetic 837P](https://claimlab.opensoft.dev/api/v1/examples/accepted.837): Download and post these raw bytes for a first test.

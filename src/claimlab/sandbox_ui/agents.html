@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ClaimLab agent guide</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="service-desc" type="application/json" href="/openapi.json">
+</head>
+<body>
+  <header class="site-header">
+    <div class="frame header-content">
+      <a class="brand" href="/">ClaimLab <span>Sandbox</span></a>
+      <nav aria-label="Primary">
+        <a href="/#upload">Uploader</a>
+        <a href="/openapi.json">OpenAPI</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="frame agent-guide">
+    <div class="intro">
+      <h1>ClaimLab agent guide</h1>
+      <p>Validate a synthetic 837P using plain HTTPS. The API is public and requires no credentials.</p>
+      <p><a href="/openapi.json">OpenAPI specification</a> · <a href="/llms.txt">Plain-text API index</a></p>
+    </div>
+
+    <section class="panel" aria-labelledby="request-title">
+      <h2 id="request-title">Run your first test</h2>
+      <p>Download a <a href="https://claimlab.opensoft.dev/api/v1/examples/accepted.837">passing example</a>,
+        then send its original bytes to <code>POST /api/v1/validate</code> with
+        <code>Content-Type: application/edi-x12</code>.</p>
+      <pre><code>curl --fail-with-body -sS -o accepted.837 \
+  https://claimlab.opensoft.dev/api/v1/examples/accepted.837
+
+curl --fail-with-body -sS \
+  -H "Content-Type: application/edi-x12" \
+  --data-binary @accepted.837 \
+  https://claimlab.opensoft.dev/api/v1/validate</code></pre>
+      <p class="hint">Send raw ASCII X12, up to 1 MiB. Use fictional subscribers and set <code>ISA15=T</code>.
+        Keep real patient information and payer credentials out of uploads.</p>
+    </section>
+
+    <section class="panel" aria-labelledby="response-title">
+      <h2 id="response-title">Read the result</h2>
+      <p>HTTP <code>200</code> means the simulation ran. Treat a file as passing when
+        <code>simulated</code> and <code>accepted</code> are both <code>true</code>.
+        ClaimLab results are simulations. Payer acceptance requires a separate enrolled test.</p>
+      <ul class="issues">
+        <li><strong>TA1</strong> in <code>interchange_ack</code> reports envelope failures.
+          A passing interchange normally returns <code>not_generated</code> at this stage.</li>
+        <li><strong>999</strong> in <code>file_ack</code> reports transaction structure problems.
+          If it is rejected, claim checks are skipped.</li>
+        <li><strong>277CA</strong> in <code>claim_ack</code> reports individual claim results.
+          If the batch is <code>mixed</code>, inspect <code>claims</code> for the one-based
+          claim number, status, and issue codes.</li>
+      </ul>
+      <p>For request errors, check the HTTP status and <code>error.code</code>.
+        <code>400</code> means the body was empty, <code>413</code> means the upload was too large,
+        and <code>415</code> means the media type was unsupported.</p>
+    </section>
+
+    <section class="panel" aria-labelledby="examples-title">
+      <h2 id="examples-title">Check a known failure</h2>
+      <ul class="issues">
+        <li><a href="/api/v1/examples/file-rejected.837">Interchange mismatch</a> returns a rejected TA1 with code <code>001</code>.</li>
+        <li><a href="/api/v1/examples/missing-clm02.837">Missing claim total</a> returns a rejected 999.</li>
+        <li><a href="/api/v1/examples/invalid-total-charge.837">Unbalanced charge</a> returns an accepted 999 and a rejected 277CA.</li>
+      </ul>
+    </section>
+  </main>
+</body>
+</html>

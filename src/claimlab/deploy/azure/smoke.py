@@ -11,6 +11,7 @@ parser.add_argument("origin", help="HTTPS origin of the sandbox.")
 parser.add_argument("--browser-channel", help="Installed Chromium channel, such as msedge.")
 args = parser.parse_args()
 origin = args.origin.rstrip("/")
+public_origin = "https://claimlab.opensoft.dev"
 target = urlsplit(origin)
 assert target.scheme == "https" and not target.path
 
@@ -28,6 +29,25 @@ def fetch(method, path, body=None, content_type=None):
 status, headers, page = fetch("GET", "/")
 assert status == 200 and b"<title>ClaimLab Sandbox</title>" in page
 assert "content-security-policy" in headers
+assert b'href="/agents"' in page and b'href="/openapi.json"' in page
+assert (public_origin + "/api/v1/validate").encode() in page
+
+status, headers, guide = fetch("GET", "/agents")
+assert status == 200 and headers["content-type"].startswith("text/html")
+assert b"ClaimLab agent guide" in guide and b"<script" not in guide
+assert (public_origin + "/api/v1/validate").encode() in guide
+
+status, headers, index = fetch("GET", "/llms.txt")
+assert status == 200 and headers["content-type"].startswith("text/plain")
+assert (public_origin + "/openapi.json").encode() in index
+
+status, headers, body = fetch("GET", "/openapi.json")
+assert status == 200 and headers["content-type"].startswith("application/json")
+spec = json.loads(body)
+assert spec["servers"][0]["url"] == public_origin
+operations = spec["paths"]
+assert "post" in operations["/api/v1/validate"]
+assert "get" in operations["/api/v1/examples/{name}"]
 accepted_file = None
 for name, statuses in {
     "accepted.837": ("not_generated", "accepted", "accepted", 1),
@@ -78,4 +98,4 @@ with sync_playwright() as browser_tools:
     assert not script_errors, script_errors
     browser.close()
 
-print("HTTPS, browser upload, rendered API commands, size limit, and absent corpus paths verified", flush=True)
+print("HTTPS agent guide, OpenAPI specification, browser upload, and API responses verified", flush=True)

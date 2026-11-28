@@ -5,7 +5,7 @@ import unittest
 from http.client import HTTPConnection
 from http.server import ThreadingHTTPServer
 
-from .sandbox import Handler, MAX_BYTES, example, simulate
+from .sandbox import EXAMPLES, Handler, MAX_BYTES, example, simulate
 from .x837p import parse
 
 
@@ -97,7 +97,34 @@ class SandboxTest(unittest.TestCase):
                     with_connection.request("GET", "/")
                     response = with_connection.getresponse()
                     self.assertEqual(response.status, 200)
-                    self.assertIn(b'id="edi-file"', response.read())
+                    homepage = response.read()
+                    self.assertIn(b'id="edi-file"', homepage)
+                    self.assertIn(b'href="/agents"', homepage)
+                    self.assertIn(b'href="/openapi.json"', homepage)
+
+                    with_connection.request("GET", "/agents")
+                    response = with_connection.getresponse()
+                    self.assertEqual(response.status, 200)
+                    guide = response.read()
+                    self.assertIn(b"https://claimlab.opensoft.dev/api/v1/validate", guide)
+                    self.assertNotIn(b"<script", guide)
+
+                    with_connection.request("GET", "/llms.txt")
+                    response = with_connection.getresponse()
+                    self.assertEqual(response.status, 200)
+                    self.assertTrue(response.getheader("Content-Type").startswith("text/plain"))
+                    self.assertIn(b"https://claimlab.opensoft.dev/openapi.json", response.read())
+
+                    with_connection.request("GET", "/openapi.json")
+                    response = with_connection.getresponse()
+                    self.assertEqual(response.status, 200)
+                    self.assertEqual(response.getheader("Content-Type"), "application/json")
+                    spec = json.loads(response.read())
+                    post = spec["paths"]["/api/v1/validate"]["post"]
+                    request_type = post["requestBody"]["content"]["application/edi-x12"]
+                    self.assertEqual(request_type["schema"]["maxLength"], MAX_BYTES)
+                    example_names = spec["paths"]["/api/v1/examples/{name}"]["get"]["parameters"][0]
+                    self.assertEqual(set(example_names["schema"]["enum"]), EXAMPLES)
 
                     for name in ("accepted-25.837", "file-rejected.837",
                                  "missing-clm02.837", "invalid-total-charge.837"):

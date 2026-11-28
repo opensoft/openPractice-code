@@ -9,6 +9,10 @@ Use the [live 837P uploader](https://claimlab.opensoft.dev/) or follow the
 [live HTTP API examples](https://claimlab.opensoft.dev/#api). The public
 sandbox uses synthetic files with `ISA15=T`.
 
+Agents can fetch the [agent guide](https://claimlab.opensoft.dev/agents),
+[OpenAPI specification](https://claimlab.opensoft.dev/openapi.json), and
+[plain-text API index](https://claimlab.opensoft.dev/llms.txt) without JavaScript.
+
 ## Run the sandbox locally
 
 From the repository root with Python 3.10 or newer:

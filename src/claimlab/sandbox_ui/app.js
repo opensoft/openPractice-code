@@ -10,7 +10,7 @@ const issues = document.querySelector("#issues");
 const actions = document.querySelectorAll("#check-button, [data-example]");
 const copy = document.querySelector("#copy-button");
 const apiExample = document.querySelector("#api-example");
-apiExample.textContent = apiExample.textContent.replaceAll("http://127.0.0.1:8765", location.origin);
+apiExample.textContent = apiExample.textContent.replaceAll("https://claimlab.opensoft.dev", location.origin);
 
 const statuses = {
   accepted: "Accepted",

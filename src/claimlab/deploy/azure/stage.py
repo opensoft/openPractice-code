@@ -8,7 +8,7 @@ from tempfile import TemporaryDirectory
 
 AZURE_SOURCE = Path(__file__).resolve().parent
 CLAIMLAB_SOURCE = AZURE_SOURCE.parents[1]
-STATIC_FILES = ("index.html", "styles.css", "app.js")
+STATIC_FILES = ("index.html", "styles.css", "app.js", "agents.html", "llms.txt", "openapi.json")
 RUNTIME_MODULES = ("sandbox.py", "synthetic.py", "x837p.py")
 FUNCTION_FILES = (
     "claimlab_http.py",

@@ -20,6 +20,10 @@ EXAMPLES = {
 }
 ASSETS = {
     "/": ("index.html", "text/html; charset=utf-8"),
+    "/agents": ("agents.html", "text/html; charset=utf-8"),
+    "/agents.html": ("agents.html", "text/html; charset=utf-8"),
+    "/llms.txt": ("llms.txt", "text/plain; charset=utf-8"),
+    "/openapi.json": ("openapi.json", "application/json"),
     "/styles.css": ("styles.css", "text/css; charset=utf-8"),
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
 }

@@ -1,0 +1,165 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "ClaimLab Sandbox API",
+    "version": "1.0.0",
+    "description": "Validate synthetic X12 837P professional claims and get simulated TA1, 999, and 277CA results. Use fictional subscriber data and set ISA15 to T."
+  },
+  "servers": [{"url": "https://claimlab.opensoft.dev"}],
+  "externalDocs": {
+    "description": "ClaimLab agent guide",
+    "url": "https://claimlab.opensoft.dev/agents"
+  },
+  "paths": {
+    "/api/v1/validate": {
+      "post": {
+        "operationId": "validate837P",
+        "summary": "Simulate acknowledgment checks on a synthetic 837P file",
+        "requestBody": {
+          "required": true,
+          "description": "Original ASCII 837P bytes, up to 1 MiB. Send the file as the request body.",
+          "content": {
+            "application/edi-x12": {
+              "schema": {"type": "string", "format": "binary", "maxLength": 1048576}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Simulation completed. The result may be accepted, rejected, or mixed.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref": "#/components/schemas/SimulationResult"},
+                "example": {
+                  "simulated": true,
+                  "accepted": true,
+                  "interchange_ack": {"type": "TA1", "status": "not_generated", "issues": []},
+                  "file_ack": {"type": "999", "status": "accepted", "issues": []},
+                  "claim_ack": {
+                    "type": "277CA",
+                    "status": "accepted",
+                    "claims": [{"number": 1, "status": "accepted", "issues": []}]
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Empty request body.",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RequestError"}}}
+          },
+          "413": {
+            "description": "Request body larger than 1 MiB. The hosting gateway can also reject larger requests.",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RequestError"}}}
+          },
+          "415": {
+            "description": "Unsupported content type. Send application/edi-x12.",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RequestError"}}}
+          }
+        }
+      }
+    },
+    "/api/v1/examples/{name}": {
+      "get": {
+        "operationId": "get837PExample",
+        "summary": "Download a built-in synthetic 837P file",
+        "parameters": [{
+          "name": "name",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "enum": [
+              "accepted.837",
+              "accepted-25.837",
+              "file-rejected.837",
+              "missing-clm02.837",
+              "invalid-total-charge.837",
+              "claim-rejected.837"
+            ]
+          }
+        }],
+        "responses": {
+          "200": {
+            "description": "Synthetic example file.",
+            "headers": {
+              "Content-Disposition": {
+                "description": "Attachment with the example filename.",
+                "schema": {"type": "string"}
+              }
+            },
+            "content": {"application/edi-x12": {"schema": {"type": "string", "format": "binary"}}}
+          },
+          "404": {
+            "description": "Unknown example.",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RequestError"}}}
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "SimulationResult": {
+        "type": "object",
+        "required": ["simulated", "accepted", "interchange_ack", "file_ack", "claim_ack"],
+        "properties": {
+          "simulated": {"type": "boolean", "enum": [true]},
+          "accepted": {"type": "boolean", "description": "True when the file and every claim pass."},
+          "interchange_ack": {
+            "type": "object",
+            "required": ["type", "status", "issues"],
+            "properties": {
+              "type": {"type": "string", "enum": ["TA1"]},
+              "status": {"type": "string", "enum": ["rejected", "not_generated"]},
+              "issues": {"type": "array", "items": {"$ref": "#/components/schemas/Issue"}}
+            }
+          },
+          "file_ack": {
+            "type": "object",
+            "required": ["type", "status", "issues"],
+            "properties": {
+              "type": {"type": "string", "enum": ["999"]},
+              "status": {"type": "string", "enum": ["accepted", "rejected", "not_generated"]},
+              "issues": {"type": "array", "items": {"$ref": "#/components/schemas/Issue"}}
+            }
+          },
+          "claim_ack": {
+            "type": "object",
+            "required": ["type", "status", "claims"],
+            "properties": {
+              "type": {"type": "string", "enum": ["277CA"]},
+              "status": {"type": "string", "enum": ["accepted", "rejected", "mixed", "not_generated"]},
+              "claims": {"type": "array", "items": {"$ref": "#/components/schemas/ClaimResult"}}
+            }
+          }
+        }
+      },
+      "ClaimResult": {
+        "type": "object",
+        "required": ["number", "status", "issues"],
+        "properties": {
+          "number": {"type": "integer", "minimum": 1, "description": "Position of the claim in the file, starting at 1."},
+          "status": {"type": "string", "enum": ["accepted", "rejected"]},
+          "issues": {"type": "array", "items": {"$ref": "#/components/schemas/Issue"}}
+        }
+      },
+      "Issue": {
+        "type": "object",
+        "required": ["code", "message"],
+        "properties": {
+          "code": {"type": "string"},
+          "message": {"type": "string"},
+          "ta105": {"type": "string", "description": "TA1 note code when applicable."}
+        }
+      },
+      "RequestError": {
+        "type": "object",
+        "required": ["error"],
+        "properties": {
+          "error": {"$ref": "#/components/schemas/Issue"}
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,65 @@
+{
+  "doctype": "DocType",
+  "name": "OpenPractice Signup Request",
+  "module": "Open Practice",
+  "engine": "InnoDB",
+  "autoname": "hash",
+  "field_order": [
+    "email",
+    "token_digest",
+    "sent_at",
+    "window_started_at",
+    "sent_count",
+    "verified_at",
+    "invited_at",
+    "invited_by"
+  ],
+  "fields": [
+    {
+      "fieldname": "email",
+      "label": "Work email",
+      "fieldtype": "Data",
+      "options": "Email",
+      "reqd": 1
+    },
+    {
+      "fieldname": "token_digest",
+      "label": "Verification digest",
+      "fieldtype": "Data",
+      "hidden": 1
+    },
+    {
+      "fieldname": "sent_at",
+      "label": "Last verification email queued",
+      "fieldtype": "Datetime"
+    },
+    {
+      "fieldname": "window_started_at",
+      "label": "Verification email window started",
+      "fieldtype": "Datetime"
+    },
+    {
+      "fieldname": "sent_count",
+      "label": "Verification emails in window",
+      "fieldtype": "Int",
+      "default": "0"
+    },
+    {
+      "fieldname": "verified_at",
+      "label": "Verified at",
+      "fieldtype": "Datetime"
+    },
+    {
+      "fieldname": "invited_at",
+      "label": "Invite queued at",
+      "fieldtype": "Datetime"
+    },
+    {
+      "fieldname": "invited_by",
+      "label": "Invite issued by",
+      "fieldtype": "Link",
+      "options": "User"
+    }
+  ],
+  "permissions": []
+}

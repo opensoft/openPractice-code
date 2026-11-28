@@ -53,6 +53,7 @@ jobs:
             bench new-site practicelab.localhost --mariadb-user-host-login-scope="%" \
               --db-root-password "$PRACTICELAB_DB_ROOT_PASSWORD" --admin-password "$PRACTICELAB_SMOKE_PASSWORD"
             bench --site practicelab.localhost set-config -p open_practice_practicelab 1
+            bench --site practicelab.localhost set-config -p open_practice_novitas_test 1
             bench --site practicelab.localhost install-app open_practice
             bench --site practicelab.localhost execute frappe.desk.page.setup_wizard.setup_wizard.setup_complete \
               --args "[{\"language\":\"English\",\"country\":\"United States\",\"timezone\":\"America/Denver\",\"currency\":\"USD\"}]"

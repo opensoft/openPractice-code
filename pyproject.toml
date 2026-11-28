@@ -7,6 +7,7 @@ name = "open_practice"
 version = "0.1.0"
 description = "openPractice Colorado Medicare Part B test workflow"
 requires-python = ">=3.10"
+dependencies = ["tzdata; sys_platform == 'win32'"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

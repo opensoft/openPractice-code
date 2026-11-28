@@ -5,6 +5,7 @@
   "engine": "InnoDB",
   "field_order": [
     "chart_encounter_ref",
+    "source_appointment",
     "subscriber_ref",
     "service_date",
     "place_of_service",
@@ -32,6 +33,14 @@
       "unique": 1,
       "in_list_view": 1,
       "description": "Use OC-MOCK for office visits or OC-MOCK-FLU for flu administration, numbered 000001 through 000025."
+    },
+    {
+      "fieldname": "source_appointment",
+      "label": "Source appointment",
+      "fieldtype": "Data",
+      "read_only": 1,
+      "no_copy": 1,
+      "unique": 1
     },
     {
       "fieldname": "subscriber_ref",

@@ -234,6 +234,7 @@ function renderSession(appointment) {
     <div class="session-action">
       <h3>${current}</h3>
       <p>${hint}</p>
+      ${appointment.mock_billing_available ? '<button type="button" class="primary" id="open-mock-billing">Open test billing case</button>' : ""}
       ${needsConfirmation ? `<label class="confirm"><input id="chart-complete" type="checkbox"> The clinician has finished charting for this session.</label>` : ""}
       ${action ? `<button type="button" class="primary" id="advance-session" ${needsConfirmation ? "disabled" : ""}>${action}</button>` : ""}
     </div>
@@ -259,6 +260,20 @@ function renderSession(appointment) {
     });
   }
   if (action) get("advance-session").addEventListener("click", () => advance(appointment));
+  if (appointment.mock_billing_available) {
+    get("open-mock-billing").addEventListener("click", async (event) => {
+      const button = event.currentTarget;
+      button.disabled = true;
+      showError(get("desk-error"), "");
+      try {
+        const result = await api("/api/appointments/" + appointment.id + "/mock-billing", {});
+        window.location.assign("/app/openpractice-billing-case/" + encodeURIComponent(result.billing_case));
+      } catch (error) {
+        showError(get("desk-error"), error.message);
+        button.disabled = false;
+      }
+    });
+  }
 }
 
 async function loadPatients(appointmentId, content) {

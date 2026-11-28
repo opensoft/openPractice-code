@@ -18,7 +18,7 @@ def sign_in(page, user):
     page.locator(".btn-login").click()
 
 
-def check_desk_workspace(browser):
+def check_desk_workspace(browser, appointment_reference):
     page = browser.new_page()
     try:
         page.goto(BASE + "/app")
@@ -30,7 +30,19 @@ def check_desk_workspace(browser):
         page.get_by_role("link", name="Session Desk", exact=True).click()
         expect(page).to_have_url(BASE + "/practice")
         expect(page.get_by_role("button", name="New appointment")).to_be_enabled()
-        print("Passed the installed openPractice workspace and Session Desk shortcut.")
+        page.locator(f'.appointment[data-appointment="{appointment_reference}"]').click()
+        with page.expect_response(lambda response: response.request.method == "POST" and API in response.url) as result:
+            page.get_by_role("button", name="Open test billing case", exact=True).click()
+        assert result.value.ok
+        case_name = result.value.json()["message"]["billing_case"]
+        expect(page).to_have_url(BASE + "/app/openpractice-billing-case/" + case_name)
+        response = page.request.get(BASE + "/api/resource/OpenPractice%20Billing%20Case/" + case_name)
+        assert response.ok
+        case = response.json()["data"]
+        assert case["source_appointment"] == appointment_reference
+        assert case["chart_encounter_ref"].startswith("OC-MOCK-DESK-000001-")
+        assert case["docstatus"] == 0 and not case["coverage_verified"]
+        print("Passed the openPractice Workspace shortcut and linked draft billing case.")
     finally:
         page.close()
 
@@ -38,8 +50,6 @@ def check_desk_workspace(browser):
 def main():
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
-        if os.environ.get("PRACTICELAB_SMOKE_CHECK_DESK") == "1":
-            check_desk_workspace(browser)
         page = browser.new_page()
         page.goto(BASE + "/practice")
         expect(page).to_have_url(re.compile("/login"))
@@ -77,6 +87,9 @@ def main():
         ]
         assert all(event["recorded_by"] == EMAIL for event in stored["events"])
         print("Passed Frappe sign-in, appointment booking, all six stages, and database readback.")
+        if os.environ.get("PRACTICELAB_SMOKE_CHECK_DESK") == "1":
+            expect(page.get_by_role("button", name="Open test billing case")).to_have_count(0)
+            check_desk_workspace(browser, reference)
         browser.close()
 
 

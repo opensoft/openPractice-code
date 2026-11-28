@@ -6,9 +6,10 @@ from unittest import TestCase
 from unittest.mock import patch
 
 from claimlab.x837p import parse, validate
-from open_practice.billing import build_test_batch
+from open_practice.billing import build_test_batch, prepare_test_batch, validate_test_batch
 from open_practice.charting import read_billing_facts
-from open_practice.mock_openchart import read_mock_billing_facts, read_mock_response
+from open_practice.frozen_837p import freeze_837p, render_frozen_837p
+from open_practice.mock_openchart import desk_encounter_reference, read_mock_billing_facts, read_mock_response
 from open_practice.test_subscriber_roster import load_approved_synthetic_roster
 
 
@@ -79,6 +80,38 @@ def sample_flu_case(place_of_service):
 
 
 class BillingTest(TestCase):
+    def test_ready_demo_office_appointment_freezes_its_booked_service_date(self):
+        appointment = {
+            "patient": "demo-02", "location": "clinic", "mode": "in-person",
+            "stage": "wrapped", "day": "2026-11-27", "slot": "10:15",
+        }
+        reference = desk_encounter_reference(appointment)
+        self.assertEqual(reference, "OC-MOCK-DESK-000002-20261127T1015")
+        facts = read_mock_billing_facts(reference)
+        self.assertEqual(facts.subscriber_ref, "BILLING-TEST-000002")
+        self.assertEqual(facts.service_date.isoformat(), "2026-11-27")
+        self.assertEqual(facts.diagnoses, ("E11.9", "I10"))
+
+        case = {
+            **sample_case(2), "chart_encounter_ref": reference, "chart_revision": facts.revision,
+            "charges": [{"procedure_code": "99213", "charge": "149.90", "units": 1, "diagnosis_pointers": "1,2"}],
+        }
+        now = NOW.replace(day=27)
+        data = prepare_test_batch(SETTINGS, [case], control_number=121, now=now)
+        billing, restricted = freeze_837p(data, control_number=121, now=now)
+        reconstructed = render_frozen_837p(billing, restricted)
+        validate_test_batch(reconstructed)
+        self.assertEqual(reconstructed, build_test_batch(SETTINGS, [case], control_number=121, now=now))
+        segments = parse(reconstructed.decode("ascii"))
+        self.assertEqual(segments[0][15], "T")
+        self.assertIn(["DTP", "472", "D8", "20261127"], segments)
+        self.assertIn(["HI", "ABK:E119", "ABF:I10"], segments)
+
+        for changed in ({"stage": "ended"}, {"patient": "patient-" + "a" * 32},
+                        {"mode": "telemedicine"}, {"location": "home-" + "a" * 32}):
+            with self.subTest(changed=changed), self.assertRaisesRegex(ValueError, "wrapped in-person"):
+                desk_encounter_reference({**appointment, **changed})
+
     def test_colorado_test_file_matches_the_billing_cases(self):
         cases = [sample_case(number) for number in range(1, 26)]
         text = build_test_batch(SETTINGS, cases, control_number=121, now=NOW).decode("ascii")

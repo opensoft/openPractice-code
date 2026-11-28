@@ -8,6 +8,8 @@ from uuid import uuid4
 
 import frappe
 
+from open_practice.desk_billing import can_start_mock_billing, start_mock_billing
+from open_practice.mock_openchart import is_ready_demo_appointment
 from open_practice.npi_registry import NPI_PATTERN, RegistryUnavailable, lookup_facility, search_facilities
 from open_practice.session_desk import (
     ADDRESS_FIELDS, CONTRACT_STATUSES, FACILITY_NAME_LIMIT, FACILITY_TYPES, HOSPITAL_SETTINGS,
@@ -243,7 +245,12 @@ def _appointments(rows):
     patients = {row.name: _display_patient(row) for row in _all(PATIENT, PATIENT_FIELDS)}
     facilities = {row.name: _display_facility(row) for row in _all(FACILITY, FACILITY_FIELDS)}
     homes = {row.name: row for row in _all(HOME, ("living_arrangement", *ADDRESS))}
-    return [_display_appointment(row, patients, facilities, homes) for row in rows]
+    appointments = [_display_appointment(row, patients, facilities, homes) for row in rows]
+    if can_start_mock_billing():
+        for appointment in appointments:
+            if is_ready_demo_appointment(appointment):
+                appointment["mock_billing_available"] = True
+    return appointments
 
 
 def _book(values):
@@ -363,6 +370,8 @@ def _write(route, values):
         return _save_facility(values)
     if match := re.fullmatch(rf"/api/appointments/({APPOINTMENT_REFERENCE})/advance", route):
         return _advance(match[1], values)
+    if match := re.fullmatch(rf"/api/appointments/({APPOINTMENT_REFERENCE})/mock-billing", route):
+        return {"billing_case": start_mock_billing(match[1])}
     if match := re.fullmatch(rf"/api/facilities/({FACILITY_REFERENCE})/(archive|restore)", route):
         if not frappe.db.exists(FACILITY, match[1]):
             raise KeyError("Facility not found.")

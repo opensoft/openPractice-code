@@ -139,6 +139,15 @@ keeps patient-linked identifiers, dates and codes in the restricted snapshot.
 The frozen format preserves element order, separators and encoding so exporter
 changes affect future releases while the existing file stays reproducible.
 
+### Start a rehearsal from the Session Desk
+
+On a PracticeLab site with the Novitas test flag enabled and the roster mode
+set to rehearsal, a Desk user with both the **OpenPractice Scheduler** and
+**OpenPractice Test Biller** roles can choose **Open test billing case** on a
+wrapped in-person appointment for a demo patient at Demo clinic. The draft
+uses that appointment's date and a mock openChart office encounter. Review the
+case, verify synthetic coverage, and release it through the normal claim batch.
+
 ### Meds Rx flu administration rehearsal
 
 Use `OC-MOCK-FLU-000001` through `OC-MOCK-FLU-000025` for synthetic flu-shot

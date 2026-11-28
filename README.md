@@ -228,3 +228,43 @@ The runner obtains an access token in memory and saves a replacement refresh
 token to the vault when Intuit returns one. Keep its receipt and connection lock
 in the state directory. The receipt carries the synthetic request and activity ID
 so a retry can resume after an interrupted create or verify an existing record.
+
+## Microsoft Teams Shifts adapter
+
+Use TeamsShiftsClient with a Microsoft Graph bearer-token supplier and the
+explicit team ID. Supply TeamsShiftsRoster with a series, site, scheduling
+group ID, and finite window. Map Teams user IDs to openPractice staff IDs,
+roles, and qualifications using TeamsShiftsWorker. Use a durable SQLite
+history file for each roster scope. Capture the initial shared roster with
+get_staffing(series) before changes to preserve the original assignments.
+
+The adapter posts a draft open shift. The provider owns approval of the
+claim, publication of the assignment, and confirmation of the timecard. The
+adapter reads those changes and emits the existing staffing and clock
+messages. Graph reads use Schedule.Read.All. Posting the draft requires
+Schedule.ReadWrite.All. [Microsoft Graph Shifts API](https://learn.microsoft.com/en-us/graph/api/resources/shift?view=graph-rest-1.0)
+
+Set the shared conformance environment as described above. Run the local
+three-RN test and the additional Shifts checks with:
+
+```powershell
+python -m unittest -v open_practice.tests.test_teams_shifts_adapter
+```
+
+The fixture makes loopback HTTP requests with synthetic Microsoft Graph
+responses.
+
+### Synthetic staffing roster
+
+Local QA uses stable identities: VA-01 through VA-02, LVN-01 through LVN-02,
+RN-01 through RN-03, NP-01 through NP-02, and MD-01 through MD-02. To configure
+a run, copy the [T-13 staffing fixture](src/open_practice/tests/fixtures/t13_staffing.json)
+and edit each participating identity's specialty and assignment. The assignment
+can be `scheduled` or `float`. Omit identities that aren't participating.
+Load the file with `load_qa_run(path)`. Each run specifies one specialty per
+participant, which the adapter uses as the qualification for matching coverage.
+
+T-13 uses the three existing Teams QA accounts. RN-01 is the other scheduled RN,
+RN-02 starts on the published roster and later approves the replacement as QA
+manager, and RN-03 is the float. The fixture supplies the role and qualification
+mapping for both the local rehearsal and the live QA run.

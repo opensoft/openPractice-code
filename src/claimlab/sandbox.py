@@ -10,10 +10,15 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files
 
 from . import x837p
-from .synthetic import DEMO_MEMBER_IDS, MEMBER_COUNT, TEST_SUBSCRIBERS, synthetic_claim, synthetic_interchange
+from .synthetic import DEMO_MEMBER_IDS, TEST_SUBSCRIBERS, synthetic_claim, synthetic_interchange
 
 
 MAX_BYTES = 1024 * 1024
+SANDBOX_SUBSCRIBERS = {
+    **TEST_SUBSCRIBERS,
+    # CMS's example MBI with the openPractice mock patient's name and DOB.
+    "1EG4TE5MK73": {"first": "EXAMPLE", "last": "PATIENT1", "dob": "19500101"},
+}
 EXAMPLES = {
     "accepted.837", "accepted-25.837", "claim-rejected.837", "file-rejected.837",
     "missing-clm02.837", "invalid-total-charge.837",
@@ -131,11 +136,11 @@ def simulate_claims(segments):
             dob = segment[2] if len(segment) > 2 else ""
         elif kind == "CLM":
             issues = []
-            subscriber = TEST_SUBSCRIBERS.get(subscriber_id)
+            subscriber = SANDBOX_SUBSCRIBERS.get(subscriber_id)
             if not in_subscriber_loop:
                 issues.append(issue("SUBSCRIBER_REQUIRED", "Place the claim under a self-subscriber HL."))
             elif subscriber is None:
-                issues.append(issue("TEST_MEMBER_UNKNOWN", f"Use SYNTH00001 through SYNTH{MEMBER_COUNT:05d} in Loop 2010BA NM109."))
+                issues.append(issue("TEST_MEMBER_UNKNOWN", "Use an ID from the ClaimLab synthetic roster in Loop 2010BA NM109."))
             elif {"first": first, "last": last, "dob": dob} != subscriber:
                 issues.append(issue("TEST_DEMOGRAPHICS_MISMATCH", "Use the name and DOB from the ClaimLab synthetic roster for this member."))
             claim = {"number": len(claims) + 1, "issues": issues, "total": Decimal(segment[2]), "line_total": None}

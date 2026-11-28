@@ -63,11 +63,12 @@ describe the outcome at each stage. Download these files from
 
 The prototype supports one ISA/IEA, GS/GE, and ST/SE for an 837P
 005010X222A1 batch using the * : ~ ^ delimiters and selected primary
-Medicare Part B validation rules. The sandbox knows 260 synthetic
+Medicare Part B validation rules. The sandbox includes 260 generated synthetic
 subscribers, SYNTH00001 through SYNTH00260. The first 25 are TAYLOR DEMO
 with birth dates January 1 through January 25, 1960 respectively. The
 25-claim example includes the original set. The seeded test corpus
-uses all 260 subscribers.
+uses all 260 subscribers. The sandbox also accepts the CMS example MBI
+`1EG4TE5MK73` with mock name `EXAMPLE PATIENT1` and birth date `1950-01-01`.
 
 The API returns JSON simulations of a TA1 interchange acknowledgment,
 999 file acknowledgment, and 277CA claim acknowledgment. Issue codes

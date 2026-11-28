@@ -80,6 +80,21 @@ class SandboxTest(unittest.TestCase):
         self.assertEqual(result["claim_ack"]["claims"][0]["issues"][0]["code"], "TEST_MEMBER_UNKNOWN")
         self.assertNotIn("DO-NOT-ECHO", json.dumps(result))
 
+    def test_cms_example_mbi_requires_matching_mock_demographics(self):
+        payload = example("accepted.837").replace(
+            b"DEMO*TAYLOR****MI*SYNTH00001", b"PATIENT1*EXAMPLE****MI*1EG4TE5MK73",
+        ).replace(b"DMG*D8*19600101", b"DMG*D8*19500101")
+
+        result = simulate(payload)
+        self.assertEqual(result["file_ack"]["status"], "accepted")
+        self.assertEqual(result["claim_ack"]["status"], "accepted")
+
+        mismatch = simulate(payload.replace(b"DMG*D8*19500101", b"DMG*D8*19500102"))
+        self.assertEqual(mismatch["file_ack"]["status"], "accepted")
+        self.assertEqual(mismatch["claim_ack"]["status"], "rejected")
+        issues = mismatch["claim_ack"]["claims"][0]["issues"]
+        self.assertEqual([issue["code"] for issue in issues], ["TEST_DEMOGRAPHICS_MISMATCH"])
+
     def test_rejects_invalid_interchange_control_number(self):
         payload = example("accepted.837").replace(b"000000001", b"A00000001")
         result = simulate(payload)

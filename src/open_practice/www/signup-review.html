@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="practicelab-csrf" content="{{ csrf_token }}">
+  <title>Practice signup requests · openPractice</title>
+  <link rel="stylesheet" href="/assets/open_practice/onboarding/setup.css">
+  <script src="/assets/open_practice/onboarding/signup.js" defer></script>
+</head>
+<body>
+  <header><div><span>openPractice</span><a href="/logout">Sign out</a></div></header>
+  <main>
+    <h1>Practice signup requests</h1>
+    <p>Review the verified work email before inviting a QA practice administrator.</p>
+    {% for request in requests %}
+    <form class="issue-invite" method="post" action="/api/method/open_practice.frappe_account_signup.issue_invite">
+      <input type="hidden" name="request_id" value="{{ request.name | e }}">
+      <p>{{ request.email | e }}</p>
+      <button type="submit" disabled>Send practice invite</button>
+    </form>
+    {% else %}
+    <p>No verified signup requests are waiting.</p>
+    {% endfor %}
+    <p id="notice" role="status" aria-live="polite"></p>
+  </main>
+</body>
+</html>

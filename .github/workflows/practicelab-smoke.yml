@@ -2,7 +2,7 @@ name: PracticeLab Frappe smoke
 
 on:
   push:
-    branches: [draft/practicelab-frappe, draft/practicelab-onboarding]
+    branches: [draft/practicelab-frappe, draft/practicelab-onboarding, draft/practicelab-start-now]
   workflow_dispatch:
 
 permissions:
@@ -71,6 +71,12 @@ jobs:
           python -m pip install playwright
           python -m playwright install --with-deps chromium
           python deploy/practicelab/smoke.py
+      - name: Verify signup by mail and land on New Practice
+        if: github.ref_name == 'draft/practicelab-start-now'
+        run: |
+          docker run -d --name mailpit --network practicelab -p 127.0.0.1:8025:8025 axllent/mailpit:v1.27.8
+          curl -fsS --retry 15 --retry-all-errors --retry-delay 1 http://127.0.0.1:8025/api/v1/messages >/dev/null
+          python deploy/practicelab/signup_smoke.py
       - name: Start the disposable openHR fork site
         shell: bash
         run: |

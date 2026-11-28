@@ -17,3 +17,7 @@ after_migrate = [
     "open_practice.frappe_session_desk.seed",
     "open_practice.frappe_session_desk.seed_workspace",
 ]
+
+get_website_user_home_page = "open_practice.frappe_account_signup.signup_home_page"
+
+web_include_js = ["/assets/open_practice/onboarding/login_prefill.js"]

@@ -153,6 +153,7 @@ def test_signup(playwright, origin):
     assert post(invitee, origin, "issue_invite", {"request_id": request_id}, csrf=csrf).status == 403
     assert invitee.request.get(origin + "/signup-review").status == 403
     assert invitee.request.get(origin + "/api/resource/OpenPractice%20Signup%20Request").status == 403
+    assert invitee.request.get(origin + "/api/resource/OpenPractice%20Claim%20Batch").status == 403
     assert invitee.request.get(origin + "/api/method/open_practice.frappe_session_desk.request",
                                params={"route": "/appointments"}).status == 403
     assert post(guest, origin, "request_signup", {"email": FRESH}).json()["message"] == {"accepted": True}

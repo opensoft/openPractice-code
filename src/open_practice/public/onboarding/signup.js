@@ -46,20 +46,29 @@ if (signup) {
     signup.querySelector("button").textContent = "Send another verification email";
   });
 
-  const match = /^#verify=([0-9a-f]{64})\.([0-9a-f]{64})$/.exec(location.hash);
-  if (match) {
+  let verification;
+  function showVerification() {
+    const match = /^#verify=([0-9a-f]{64})\.([0-9a-f]{64})$/.exec(location.hash);
+    if (!match) return;
+
     history.replaceState(null, "", location.pathname);
+    verification = {request_id: match[1], token: match[2]};
+    notice.textContent = "";
     signup.hidden = true;
     confirmation.hidden = false;
-    handle(confirmation, async () => {
-      const result = await send("verify_signup", {request_id: match[1], token: match[2]});
-      confirmation.hidden = true;
-      signup.hidden = result.verified;
-      notice.textContent = result.verified
-        ? "Work email verified. A QA operator will review your request and send your invitation."
-        : "This link is no longer valid. Request another verification email if you still need to verify.";
-    });
   }
+
+  handle(confirmation, async () => {
+    const result = await send("verify_signup", verification);
+    verification = null;
+    confirmation.hidden = true;
+    signup.hidden = result.verified;
+    notice.textContent = result.verified
+      ? "Work email verified. A QA operator will review your request and send your invitation."
+      : "This link is no longer valid. Request another verification email if you still need to verify.";
+  });
+  window.addEventListener("hashchange", showVerification);
+  showVerification();
 }
 
 for (const form of document.querySelectorAll(".issue-invite")) {

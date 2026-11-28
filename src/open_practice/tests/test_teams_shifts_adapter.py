@@ -271,6 +271,59 @@ class TeamsShiftsConformanceTest(TestCase):
         self.assertEqual((gap.starts_at, gap.ends_at, gap.staff_minutes), (at(9, 10), at(9, 20), 10))
         self.assertEqual(evidence.published, baseline.published)
 
+    def test_published_float_can_cover_more_than_the_requested_window(self):
+        baseline, _ = self.read()
+        del self.fixture.shifts["callout"]
+        request = self.request()
+        self.adapter.post_open_shift(request)
+        ref, = self.fixture.open_shifts
+        self.fixture.claims["claim"] = {
+            "id": "claim", "openShiftId": ref, "senderUserId": FLOAT, "state": "approved",
+        }
+        replacement = shift("float", FLOAT)
+        replacement["sharedShift"].update(startDateTime=at(9, 11).isoformat(), endDateTime=at(9, 25).isoformat())
+        self.fixture.shifts["float"] = replacement
+        evidence, _ = self.read()
+        self.checks.expect_open_shift(evidence, request, "pending")
+
+        replacement["sharedShift"]["startDateTime"] = at(9, 5).isoformat()
+        evidence, result = self.read()
+        self.checks.expect_open_shift(evidence, request, "confirmed")
+        self.assertEqual(result.revised_gaps, ())
+        self.assertEqual(evidence.published, baseline.published)
+
+    def test_manager_confirmed_attendance_survives_removal_from_roster(self):
+        baseline, _ = self.read()
+        del self.fixture.shifts["callout"]
+        intermediate = shift("float", FLOAT)
+        intermediate["sharedShift"].update(startDateTime=at(9, 13).isoformat(), endDateTime=at(9, 15).isoformat())
+        self.fixture.shifts["float"] = intermediate
+        self.read()
+        del self.fixture.shifts["float"]
+
+        self.fixture.cards["first-card"] = card("first-card", ORIGINAL, at(9, 10), confirmed="manager")
+        removed = card("callout-card", CALLOUT, at(9, 10), confirmed="manager")
+        removed["clockOutEvent"]["dateTime"] = at(9, 13).isoformat()
+        self.fixture.cards["callout-card"] = removed
+        float_card = card("float-card", FLOAT, at(9, 13), confirmed="manager")
+        float_card["clockOutEvent"]["dateTime"] = at(9, 15).isoformat()
+        self.fixture.cards["float-card"] = float_card
+
+        self.adapter = self.make_adapter()
+        evidence, result = self.read()
+        self.assertEqual(evidence.published, baseline.published)
+        self.assertEqual([row.staff_id for row in evidence.current.assignments], ["RN-01"])
+        self.assertCountEqual(
+            [(row.staff_id, row.window) for row in evidence.attendance.worked_intervals],
+            [("RN-01", PROCEDURE), ("RN-02", TimeWindow(at(9, 10), at(9, 13))),
+             ("RN-03", TimeWindow(at(9, 13), at(9, 15)))],
+        )
+        self.assertEqual(evidence.attendance.unresolved_exceptions, ())
+        gap, = result.approved_attendance_gaps
+        self.assertEqual((gap.starts_at, gap.ends_at, gap.headcount, gap.staff_minutes), (at(9, 15), at(9, 20), 1, 5))
+        self.assertEqual({row.staff_id: row.staff_minutes for row in result.revised_to_actual},
+                         {"RN-02": 3, "RN-03": 2})
+
     def test_open_shift_retries_after_throttling_without_a_duplicate(self):
         self.read()
         request = self.request()

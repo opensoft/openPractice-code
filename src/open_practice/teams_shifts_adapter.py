@@ -174,7 +174,9 @@ class TeamsShiftsAdapter:
             window = TimeWindow(_timestamp(fields["starts_at"]), _timestamp(fields["ends_at"]))
             candidates = [
                 assignment for key, (user_id, assignment) in shifts.items()
-                if key not in prior and user_id == claim.get("senderUserId") and assignment.window == window
+                if key not in prior and user_id == claim.get("senderUserId")
+                and assignment.window.starts_at <= window.starts_at
+                and assignment.window.ends_at >= window.ends_at
                 and (assignment.role, assignment.qualification) == (fields["role"], fields["qualification"])
             ]
             if len(candidates) == 1:
@@ -182,11 +184,12 @@ class TeamsShiftsAdapter:
         links = [(next(iter(claims)), assignment) for assignment, claims in matches.items() if len(claims) == 1]
         return tuple(sorted(links, key=lambda link: (link[0], link[1].staff_id)))
 
-    def _attendance(self, current):
+    def _attendance(self, snapshots):
         roster = self._roster.window
         assigned = {}
-        for assignment in current.assignments:
-            assigned.setdefault(assignment.staff_id, []).append(assignment.window)
+        for snapshot in snapshots:
+            for assignment in snapshot.assignments:
+                assigned.setdefault(assignment.staff_id, set()).add(assignment.window)
         worked = []
         unresolved = []
         for ref, row in self._client.rows("timeCards").items():
@@ -210,7 +213,7 @@ class TeamsShiftsAdapter:
                     worked.append(self._assignment(worker, TimeWindow(left, right)))
         if not worked:
             return None
-        return ApprovedAttendance(current.reference, tuple(worked), tuple(sorted(unresolved)))
+        return ApprovedAttendance(snapshots[-1].reference, tuple(worked), tuple(sorted(unresolved)))
 
     def get_staffing(self, roster_series):
         if roster_series != self._roster.series:
@@ -224,7 +227,7 @@ class TeamsShiftsAdapter:
                 ))
                 snapshots = self._snapshots(db, assignments)
                 links = self._coverage_links(db, shifts) if len(snapshots) > 1 else ()
-                attendance = self._attendance(snapshots[-1])
+                attendance = self._attendance(snapshots)
                 return StaffScheduleEvidence(snapshots[0], snapshots[1:], attendance, links)
         except (AttributeError, KeyError, TypeError, ValueError):
             raise TeamsShiftsError("Microsoft Graph returned invalid staffing evidence.") from None

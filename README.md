@@ -112,3 +112,159 @@ to Python.
 ```powershell
 python -m unittest -v open_practice.tests.test_openhr_native.OpenHRNativeSiteAcceptanceTest
 ```
+
+## QuickBooks Time scheduling adapter
+
+`QuickBooksTimeAdapter` uses the documented QuickBooks Time (TSheets) v1
+API. It reads published shifts, scoped workers and qualifications, timed
+approved leave, and timecard evidence through the shared 1.0 contract.
+It posts an unassigned draft for a coverage request and waits for the
+provider's published assignment. Intuit is moving the classic Time
+experience into QuickBooks Online. Confirm that the tenant can use the
+documented Time v1 endpoints before connecting it. [QuickBooks Time API
+reference](https://tsheetsteam.github.io/api_docs/) · [Intuit migration
+notice](https://quickbooks.intuit.com/learn-support/en-us/help-article/time-tracking/classic-quickbooks-time-moving-quickbooks-online/L5tnv0Sms_US_en_US)
+
+Configure one calendar, workforce job-code mapping and account time zone per
+roster series. Supply the account's authorized workforce mapping by QuickBooks
+user ID. Each entry maps to one staff reference, role, qualification, skill
+level and a credential expiry date or an explicitly nonexpiring credential.
+A scheduled assignment counts only when the mapped worker's qualification
+matches the job code and is valid through the end of the shift.
+
+Pass an account-scoped bearer-token supplier to `QuickBooksTimeClient`.
+The application owns OAuth authorization, token renewal and storage. The
+Time v1 authorization is separate from the QuickBooks accounting connection.
+The client sends the bearer token only to the documented API origin or to the
+loopback fixture when explicitly configured. [Time v1 OAuth
+documentation](https://tsheetsteam.github.io/api_docs/#authentication)
+
+Keep one durable local SQLite history file per account, calendar and roster
+series. Capture the published baseline with `get_staffing(series)` before
+processing day-of changes. This freezes the first successful observation.
+Later observations append revisions, and restarts read the same history.
+A repeated request with the same correlation ID is idempotent. A retry
+after an ambiguous create looks for the corresponding provider event and
+keeps the request unresolved when the provider has yet to return it. Only a
+published, qualified assignment counts as confirmation. [Schedule events
+reference](https://tsheetsteam.github.io/api_docs/#schedule-events)
+
+`get_workers(window)`, `get_leave(window)`, and `get_clock_events(window)`
+return canonical messages. Date-only leave lacks an exact window and returns
+an unavailable-feed error when it affects the requested dates. Clock events
+reflect the boundaries of regular timecards. For approved attendance,
+the adapter requires closed, timed entries within the worker's
+`approved_to` date. Manual duration entries and unfinished or unapproved
+timecards remain unresolved in the reconciliation. [Time off request
+entries](https://tsheetsteam.github.io/api_docs/#time-off-request-entries) ·
+[Timesheet approval fields](https://tsheetsteam.github.io/api_docs/#the-timesheet-object)
+
+After setting up the shared conformance environment above, run the synthetic
+QuickBooks Time acceptance suite from the assembly checkout.
+
+```powershell
+python -m unittest -v open_practice.tests.test_quickbooks_time_adapter
+```
+
+The tests use a loopback HTTP fixture with synthetic workforce records and
+exercise the same conformance checks as the openHR T-26 tests.
+
+### Run live T-12
+
+The live case requires a dedicated Intuit test account with QuickBooks Time
+v1 API access and approvals enabled. Its token must belong to a manager or
+administrator who can manage schedules and timecards and approve time.
+Use three existing synthetic staff with time tracking enabled and no
+deliverable notification contacts. [Time v1 authorization](https://tsheetsteam.github.io/api_docs/#authentication) ·
+[Time approval API](https://tsheetsteam.github.io/api_docs/#approving-time)
+
+Set `OPENPRACTICE_T12_TIME_TOKEN` from the test account's secure token source.
+Set `OPENPRACTICE_T12_CONFIG` to a JSON file with non-secret test settings.
+
+- `account` is the test account's `client_url` from Time v1.
+- `calendar_id` and `jobcode_id` select the synthetic schedule calendar and the active regular workforce job code.
+- `user_ids` lists the original RN, callout RN, and float RN IDs in that order.
+- `date` is a completed local test date with an empty 09:00–09:30 calendar window.
+- `time_zone` is the account's IANA time zone.
+
+The runner verifies the tenant and checks that approval will apply only to
+timecards from this run. It posts and reads the draft through the adapter,
+publishes the float in Time, records two synthetic timecards, and verifies
+the approved attendance. The provider records remain available for inspection.
+
+```powershell
+python -m unittest -v open_practice.tests.test_quickbooks_time_live
+```
+
+## QuickBooks Online sandbox TimeActivity smoke test
+
+This Windows QA runner uses the QuickBooks Online Accounting sandbox API to
+create one synthetic, eight-minute, nonbillable employee TimeActivity and
+read it back by ID. It uses the existing record on subsequent runs against
+the same sandbox and state directory. Live QuickBooks Time v1 T-12 has its
+own runner and tenant authorization.
+
+Use a dedicated QA vault, a synthetic QuickBooks Online sandbox company, and
+a signed-in Azure CLI identity with access to read secrets and update the
+refresh grant. In the vault, store these JSON objects as secret values.
+
+- `openpractice-qbo-sandbox-app` with string fields `client_id` and `client_secret`.
+- `openpractice-qbo-sandbox-grant` with string fields `realm_id` and `refresh_token`.
+
+From the code checkout, provide the Python used to run Azure CLI if it lives
+in a separate environment. The runner needs IANA time-zone data when using a
+non-UTC zone. Use a private state directory outside the checkout and reuse it
+for every rerun so the runner can find the original receipt.
+
+```powershell
+$stateDir = Join-Path $env:LOCALAPPDATA 'openPractice/quickbooks-online-sandbox'
+python scripts/qbo_sandbox/timeactivity_smoke.py `
+  --vault-name '<qa-vault-name>' --subscription '<qa-subscription>' `
+  --azure-cli-python '<path-to-python-with-azure-cli>' `
+  --state-dir $stateDir --time-zone 'America/La_Paz'
+```
+
+The runner obtains an access token in memory and saves a replacement refresh
+token to the vault when Intuit returns one. Keep its receipt and connection lock
+in the state directory. The receipt carries the synthetic request and activity ID
+so a retry can resume after an interrupted create or verify an existing record.
+
+## Microsoft Teams Shifts adapter
+
+Use TeamsShiftsClient with a Microsoft Graph bearer-token supplier and the
+explicit team ID. Supply TeamsShiftsRoster with a series, site, scheduling
+group ID, and finite window. Map Teams user IDs to openPractice staff IDs,
+roles, and qualifications using TeamsShiftsWorker. Use a durable SQLite
+history file for each roster scope. Capture the initial shared roster with
+get_staffing(series) before changes to preserve the original assignments.
+
+The adapter posts a draft open shift. The provider owns approval of the
+claim, publication of the assignment, and confirmation of the timecard. The
+adapter reads those changes and emits the existing staffing and clock
+messages. Graph reads use Schedule.Read.All. Posting the draft requires
+Schedule.ReadWrite.All. [Microsoft Graph Shifts API](https://learn.microsoft.com/en-us/graph/api/resources/shift?view=graph-rest-1.0)
+
+Set the shared conformance environment as described above. Run the local
+three-RN test and the additional Shifts checks with:
+
+```powershell
+python -m unittest -v open_practice.tests.test_teams_shifts_adapter
+```
+
+The fixture makes loopback HTTP requests with synthetic Microsoft Graph
+responses.
+
+### Synthetic staffing roster
+
+Local QA uses stable identities: VA-01 through VA-02, LVN-01 through LVN-02,
+RN-01 through RN-03, NP-01 through NP-02, and MD-01 through MD-02. To configure
+a run, copy the [T-13 staffing fixture](src/open_practice/tests/fixtures/t13_staffing.json)
+and edit each participating identity's specialty and assignment. The assignment
+can be `scheduled` or `float`. Omit identities that aren't participating.
+Load the file with `load_qa_run(path)`. Each run specifies one specialty per
+participant, which the adapter uses as the qualification for matching coverage.
+
+T-13 uses the three existing Teams QA accounts. RN-01 is the other scheduled RN,
+RN-02 starts on the published roster and later approves the replacement as QA
+manager, and RN-03 is the float. The fixture supplies the role and qualification
+mapping for both the local rehearsal and the live QA run.

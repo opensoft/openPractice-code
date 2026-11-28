@@ -12,7 +12,8 @@ from open_practice.teams_shifts_client import TeamsShiftsError, TeamsShiftsHTTPE
 
 
 _REQUEST_PREFIX = "openPractice coverage "
-_REJECTED_CREATES = {400, 401, 403, 404, 422}
+# Graph returns 429 when throttling prevents the request from taking effect.
+_REJECTED_CREATES = {400, 401, 403, 404, 422, 429}
 
 
 @dataclass(frozen=True)

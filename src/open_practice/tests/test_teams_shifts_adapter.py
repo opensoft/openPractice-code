@@ -13,7 +13,7 @@ from open_practice.staff_schedule_provider import OpenShiftRequest
 from open_practice.staffing_demand import calculate_demand, summarize_demand
 from open_practice.staffing_variance import TimeWindow, compare_staffing
 from open_practice.teams_shifts_adapter import TeamsShiftsAdapter, TeamsShiftsRoster, TeamsShiftsWorker
-from open_practice.teams_shifts_client import TeamsShiftsClient, TeamsShiftsError
+from open_practice.teams_shifts_client import TeamsShiftsClient, TeamsShiftsError, TeamsShiftsHTTPError
 from open_practice.tests.qa_staffing import QA_STAFF, T13_STAFFING, load_qa_run
 from open_practice.tests.staff_provider_conformance import StaffingConformance, validate_provider_message
 from open_practice.tests.test_staffing_demand import at, overlapping_procedures
@@ -59,6 +59,7 @@ class SyntheticGraph:
         self.posts = []
         self.queries = []
         self.drop_create_reply = False
+        self.throttle_next_create = False
 
     def handler(self):
         fixture = self
@@ -105,6 +106,9 @@ class SyntheticGraph:
                     return self.reply(404, {})
                 values = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
                 fixture.posts.append(values)
+                if fixture.throttle_next_create:
+                    fixture.throttle_next_create = False
+                    return self.reply(429, {"error": {"code": "TooManyRequests"}})
                 ref = "open-" + str(len(fixture.posts))
                 row = {"id": ref, "sharedOpenShift": None, **values}
                 fixture.open_shifts[ref] = row
@@ -266,6 +270,25 @@ class TeamsShiftsConformanceTest(TestCase):
         gap, = result.revised_gaps
         self.assertEqual((gap.starts_at, gap.ends_at, gap.staff_minutes), (at(9, 10), at(9, 20), 10))
         self.assertEqual(evidence.published, baseline.published)
+
+    def test_open_shift_retries_after_throttling_without_a_duplicate(self):
+        self.read()
+        request = self.request()
+        self.fixture.throttle_next_create = True
+        with self.assertRaises(TeamsShiftsHTTPError) as raised:
+            self.adapter.post_open_shift(request)
+        self.assertEqual(raised.exception.status, 429)
+        self.assertEqual(len(self.fixture.posts), 1)
+        self.assertEqual(self.fixture.open_shifts, {})
+
+        self.make_adapter().post_open_shift(request)
+        self.make_adapter().post_open_shift(request)
+
+        self.assertEqual(len(self.fixture.posts), 2)
+        self.assertEqual(self.fixture.posts[0], self.fixture.posts[1])
+        self.assertEqual(len(self.fixture.open_shifts), 1)
+        evidence, _ = self.read()
+        self.checks.expect_open_shift(evidence, request, "pending")
 
     def test_open_shift_recovers_a_lost_post_acknowledgment(self):
         self.read()

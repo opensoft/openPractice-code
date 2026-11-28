@@ -7,13 +7,14 @@ from tempfile import TemporaryDirectory
 from threading import Thread
 from unittest import TestCase
 from urllib.parse import urlsplit
-from uuid import uuid4
+from uuid import UUID, uuid4, uuid5
 
 from open_practice.staff_schedule_provider import OpenShiftRequest
 from open_practice.staffing_demand import calculate_demand, summarize_demand
 from open_practice.staffing_variance import TimeWindow, compare_staffing
 from open_practice.teams_shifts_adapter import TeamsShiftsAdapter, TeamsShiftsRoster, TeamsShiftsWorker
 from open_practice.teams_shifts_client import TeamsShiftsClient, TeamsShiftsError
+from open_practice.tests.qa_staffing import QA_STAFF, T13_STAFFING, load_qa_run
 from open_practice.tests.staff_provider_conformance import StaffingConformance, validate_provider_message
 from open_practice.tests.test_staffing_demand import at, overlapping_procedures
 
@@ -21,12 +22,10 @@ from open_practice.tests.test_staffing_demand import at, overlapping_procedures
 TEAM = "11111111-0000-4000-8000-000000000013"
 GROUP = "TAG-denver-procedure"
 BASE_PATH = f"/v1.0/teams/{TEAM}/schedule"
-WORKERS = {
-    "11111111-0000-4000-8000-000000000001": TeamsShiftsWorker("assigned-rn-1", "RN", "procedure-qualified"),
-    "11111111-0000-4000-8000-000000000002": TeamsShiftsWorker("assigned-rn-2", "RN", "procedure-qualified"),
-    "11111111-0000-4000-8000-000000000003": TeamsShiftsWorker("float-rn", "RN", "procedure-qualified"),
-}
-ORIGINAL, CALLOUT, FLOAT = WORKERS
+LOOPBACK_USERS = {staff_id: str(uuid5(UUID(TEAM), staff_id)) for staff_id in QA_STAFF}
+T13_RUN = load_qa_run(T13_STAFFING)
+ORIGINAL, CALLOUT = (LOOPBACK_USERS[staff_id] for staff_id, row in T13_RUN.items() if row.assignment == "scheduled")
+FLOAT, = (LOOPBACK_USERS[staff_id] for staff_id, row in T13_RUN.items() if row.assignment == "float")
 PERIOD = TimeWindow(at(9, 0), at(9, 30))
 PROCEDURE = TimeWindow(at(9, 10), at(9, 20))
 
@@ -135,9 +134,13 @@ class TeamsShiftsConformanceTest(TestCase):
         self.checks = StaffingConformance(self, self.roster.series)
         self.demand = calculate_demand(overlapping_procedures())
 
-    def make_adapter(self):
+    def make_adapter(self, run=T13_RUN):
+        workers = {
+            LOOPBACK_USERS[staff_id]: TeamsShiftsWorker(staff_id, row.role, row.specialty)
+            for staff_id, row in run.items()
+        }
         return TeamsShiftsAdapter(
-            self.client, self.roster, workers=WORKERS, history_path=Path(self.temp) / "roster.sqlite3",
+            self.client, self.roster, workers=workers, history_path=Path(self.temp) / "roster.sqlite3",
         )
 
     def read(self):
@@ -156,7 +159,7 @@ class TeamsShiftsConformanceTest(TestCase):
         _, baseline = self.read()
         self.assertEqual(baseline.published_gaps, ())
         self.assertCountEqual([row.staff_id for row in baseline.published.assignments],
-                              ["assigned-rn-1", "assigned-rn-2"])
+                              ["RN-01", "RN-02"])
         self.assertTrue(any("$skiptoken" in query for query in self.fixture.queries))
 
         del self.fixture.shifts["callout"]
@@ -200,7 +203,7 @@ class TeamsShiftsConformanceTest(TestCase):
         self.assertEqual(published.revised_gaps, ())
         self.assertEqual(published.published, baseline.published)
         self.assertCountEqual([row.staff_id for row in evidence.current.assignments],
-                              ["assigned-rn-1", "float-rn"])
+                              ["RN-01", "RN-03"])
 
         self.fixture.cards.update({
             "first-card": card("first-card", ORIGINAL, at(9, 10)),
@@ -209,7 +212,7 @@ class TeamsShiftsConformanceTest(TestCase):
         clock = self.adapter.get_clock_events(PERIOD)
         validate_provider_message(self.checks.validator, clock)
         self.assertIn({
-            "reference": "timeCard/float-card/in", "staff_id": "float-rn", "direction": "in",
+            "reference": "timeCard/float-card/in", "staff_id": "RN-03", "direction": "in",
             "at": at(9, 12).astimezone(PERIOD.starts_at.tzinfo).isoformat(),
         }, clock["data"]["records"])
         evidence, employee_confirmed = self.read()
@@ -218,7 +221,7 @@ class TeamsShiftsConformanceTest(TestCase):
 
         self.fixture.cards["first-card"]["confirmedBy"] = "manager"
         evidence, partially_approved = self.read()
-        self.assertEqual([row.staff_id for row in evidence.attendance.worked_intervals], ["assigned-rn-1"])
+        self.assertEqual([row.staff_id for row in evidence.attendance.worked_intervals], ["RN-01"])
         self.assertEqual(evidence.attendance.unresolved_exceptions, ("timeCard/float-card",))
         self.assertEqual(partially_approved.approved_attendance_gaps, (shortage,))
 
@@ -227,11 +230,42 @@ class TeamsShiftsConformanceTest(TestCase):
         actual, = approved.approved_attendance_gaps
         self.assertEqual((actual.starts_at, actual.ends_at, actual.headcount, actual.staff_minutes),
                          (at(9, 10), at(9, 12), 1, 2))
-        float_work, = [row.window for row in evidence.attendance.worked_intervals if row.staff_id == "float-rn"]
+        float_work, = [row.window for row in evidence.attendance.worked_intervals if row.staff_id == "RN-03"]
         self.assertEqual(float_work, TimeWindow(at(9, 12), at(9, 20)))
         self.assertEqual(evidence.attendance.unresolved_exceptions, ())
         self.assertEqual(approved.revised_gaps, ())
         self.assertEqual(approved.published, baseline.published)
+
+    def test_another_run_can_rotate_staff_and_exclude_a_float_with_the_wrong_specialty(self):
+        config = Path(self.temp) / "rotate_rns.json"
+        config.write_text(json.dumps({
+            "RN-03": {"specialty": "procedure-qualified", "assignment": "scheduled"},
+            "RN-02": {"specialty": "procedure-qualified", "assignment": "scheduled"},
+            "RN-01": {"specialty": "triage-qualified", "assignment": "float"},
+        }), encoding="utf-8")
+        run = load_qa_run(config)
+        self.fixture.shifts = {
+            staff_id: shift(staff_id, LOOPBACK_USERS[staff_id])
+            for staff_id, row in run.items()
+            if row.assignment == "scheduled"
+        }
+        self.adapter = self.make_adapter(run)
+        baseline, _ = self.read()
+        self.assertCountEqual([row.staff_id for row in baseline.published.assignments], ["RN-02", "RN-03"])
+
+        del self.fixture.shifts["RN-02"]
+        request = self.request()
+        self.adapter.post_open_shift(request)
+        ref, = self.fixture.open_shifts
+        self.fixture.claims["claim"] = {
+            "id": "claim", "openShiftId": ref, "senderUserId": LOOPBACK_USERS["RN-01"], "state": "approved",
+        }
+        self.fixture.shifts["RN-01"] = shift("RN-01", LOOPBACK_USERS["RN-01"])
+        evidence, result = self.read()
+        self.checks.expect_open_shift(evidence, request, "pending")
+        gap, = result.revised_gaps
+        self.assertEqual((gap.starts_at, gap.ends_at, gap.staff_minutes), (at(9, 10), at(9, 20), 10))
+        self.assertEqual(evidence.published, baseline.published)
 
     def test_open_shift_recovers_a_lost_post_acknowledgment(self):
         self.read()

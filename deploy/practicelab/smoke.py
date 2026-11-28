@@ -31,11 +31,10 @@ def check_desk_workspace(browser, appointment_reference):
         expect(page).to_have_url(BASE + "/practice")
         expect(page.get_by_role("button", name="New appointment")).to_be_enabled()
         page.locator(f'.appointment[data-appointment="{appointment_reference}"]').click()
-        with page.expect_response(lambda response: response.request.method == "POST" and API in response.url) as result:
-            page.get_by_role("button", name="Open test billing case", exact=True).click()
-        assert result.value.ok
-        case_name = result.value.json()["message"]["billing_case"]
-        expect(page).to_have_url(BASE + "/app/openpractice-billing-case/" + case_name)
+        page.get_by_role("button", name="Open test billing case", exact=True).click()
+        case_route = BASE + "/app/openpractice-billing-case/"
+        expect(page).to_have_url(re.compile(re.escape(case_route) + r"OPC-\d{9}$"))
+        case_name = page.url.removeprefix(case_route)
         response = page.request.get(BASE + "/api/resource/OpenPractice%20Billing%20Case/" + case_name)
         assert response.ok
         case = response.json()["data"]

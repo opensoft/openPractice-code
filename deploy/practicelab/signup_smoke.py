@@ -137,8 +137,8 @@ def test_signup(playwright, origin):
 
     invitee = browser.new_page()
     invitee.goto(mail_link(mailbox, invite, INVITE_LINK))
-    invitee.locator("#new_password").fill(os.environ["PRACTICELAB_SMOKE_PASSWORD"])
-    invitee.locator("#confirm_password").fill(os.environ["PRACTICELAB_SMOKE_PASSWORD"])
+    invitee.locator("#new_password").press_sequentially(os.environ["PRACTICELAB_SMOKE_PASSWORD"])
+    invitee.locator("#confirm_password").press_sequentially(os.environ["PRACTICELAB_SMOKE_PASSWORD"])
     invitee.locator("#update").click()
     expect(invitee).to_have_url(re.compile("/new-practice$"), timeout=15_000)
     expect(invitee.get_by_role("heading", name="New Practice")).to_be_visible()

@@ -60,6 +60,7 @@ class SyntheticGraph:
         self.queries = []
         self.drop_create_reply = False
         self.throttle_next_create = False
+        self.bearer_token = "TEST_TEAMS_SHIFTS"
 
     def handler(self):
         fixture = self
@@ -84,7 +85,7 @@ class SyntheticGraph:
                     f"{BASE_PATH}/openShiftChangeRequests": fixture.claims,
                     f"{BASE_PATH}/timeCards": fixture.cards,
                 }
-                if self.headers.get("Authorization") != "Bearer TEST_TEAMS_SHIFTS":
+                if self.headers.get("Authorization") != f"Bearer {fixture.bearer_token}":
                     return self.reply(401, {})
                 if target.path not in collections:
                     return self.reply(404, {})
@@ -100,7 +101,7 @@ class SyntheticGraph:
                 self.reply(200, {"value": rows})
 
             def do_POST(self):
-                if self.headers.get("Authorization") != "Bearer TEST_TEAMS_SHIFTS":
+                if self.headers.get("Authorization") != f"Bearer {fixture.bearer_token}":
                     return self.reply(401, {})
                 if self.path != f"{BASE_PATH}/openShifts":
                     return self.reply(404, {})
@@ -323,6 +324,37 @@ class TeamsShiftsConformanceTest(TestCase):
         self.assertEqual((gap.starts_at, gap.ends_at, gap.headcount, gap.staff_minutes), (at(9, 15), at(9, 20), 1, 5))
         self.assertEqual({row.staff_id: row.staff_minutes for row in result.revised_to_actual},
                          {"RN-02": 3, "RN-03": 2})
+
+    def test_open_shift_retries_after_token_failure_without_a_duplicate(self):
+        self.read()
+        del self.fixture.shifts["callout"]
+        for unavailable in ("", RuntimeError("token refresh failed")):
+            with self.subTest(failure=type(unavailable).__name__):
+                request = self.request()
+                previous = len(self.fixture.posts)
+                self.fixture.bearer_token = "TEST_TEAMS_SHIFTS"
+                refreshed = "REFRESHED_TEAMS_SHIFTS"
+                tokens = iter((self.fixture.bearer_token, unavailable))
+
+                def supply_token():
+                    value = next(tokens, refreshed)
+                    if isinstance(value, Exception):
+                        raise value
+                    return value
+
+                self.client = TeamsShiftsClient(
+                    TEAM, supply_token, origin=f"http://127.0.0.1:{self.server.server_port}",
+                )
+                with self.assertRaises(TeamsShiftsError):
+                    self.make_adapter().post_open_shift(request)
+                self.assertEqual(len(self.fixture.posts), previous)
+                self.assertEqual(len(self.fixture.open_shifts), previous)
+
+                self.fixture.bearer_token = refreshed
+                self.make_adapter().post_open_shift(request)
+                self.make_adapter().post_open_shift(request)
+                self.assertEqual(len(self.fixture.posts), previous + 1)
+                self.assertEqual(len(self.fixture.open_shifts), previous + 1)
 
     def test_open_shift_retries_after_throttling_without_a_duplicate(self):
         self.read()

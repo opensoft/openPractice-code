@@ -16,6 +16,10 @@ class TeamsShiftsError(RuntimeError):
     """Microsoft Graph returned unavailable or unusable scheduling evidence."""
 
 
+class TeamsShiftsTokenError(TeamsShiftsError):
+    """A token failure blocked the Graph request before transmission."""
+
+
 class TeamsShiftsHTTPError(TeamsShiftsError):
     def __init__(self, status):
         super().__init__(f"Microsoft Graph Shifts returned HTTP {status}.")
@@ -47,9 +51,12 @@ class TeamsShiftsClient:
         self._opener = build_opener(_NoRedirect)
 
     def _request(self, url, method="GET", values=None):
-        token = self._token_provider()
+        try:
+            token = self._token_provider()
+        except Exception:
+            raise TeamsShiftsTokenError("Could not obtain a Microsoft Graph bearer token.") from None
         if not isinstance(token, str) or not re.fullmatch(r"[A-Za-z0-9._~+/=-]+", token):
-            raise TeamsShiftsError("A Microsoft Graph bearer token is required.")
+            raise TeamsShiftsTokenError("A Microsoft Graph bearer token is required.")
         headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
         data = None
         if values is not None:

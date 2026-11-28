@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 
 from open_practice.staff_schedule_provider import StaffScheduleEvidence, assignment_fields, provider_message
 from open_practice.staffing_variance import ApprovedAttendance, RosterSnapshot, StaffingAssignment, TimeWindow
-from open_practice.teams_shifts_client import TeamsShiftsError, TeamsShiftsHTTPError
+from open_practice.teams_shifts_client import TeamsShiftsError, TeamsShiftsHTTPError, TeamsShiftsTokenError
 
 
 _REQUEST_PREFIX = "openPractice coverage "
@@ -308,8 +308,8 @@ class TeamsShiftsAdapter:
                 ref = self._client.create_open_shift({
                     "schedulingGroupId": roster.scheduling_group_id, "draftOpenShift": draft, "sharedOpenShift": None,
                 })
-            except TeamsShiftsHTTPError as error:
-                if error.status in _REJECTED_CREATES:
+            except (TeamsShiftsHTTPError, TeamsShiftsTokenError) as error:
+                if isinstance(error, TeamsShiftsTokenError) or error.status in _REJECTED_CREATES:
                     with self._transaction() as db:
                         db.execute("DELETE FROM coverage_request WHERE correlation = ? AND open_shift_id IS NULL",
                                    (correlation,))

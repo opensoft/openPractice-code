@@ -5,30 +5,35 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="referrer" content="no-referrer">
   <meta name="practicelab-csrf" content="{{ csrf_token }}">
-  <title>Start now · openPractice</title>
+  <title>Sign in or sign up · openPractice</title>
   <link rel="stylesheet" href="/assets/open_practice/onboarding/setup.css">
   <script src="/assets/open_practice/onboarding/signup.js" defer></script>
 </head>
 <body>
   <header><div><span>openPractice</span>
-    {% if signed_in %}<a href="/logout">Sign out</a>
-    {% else %}<a href="/login?redirect-to=%2Fnew-practice">Sign in</a>{% endif %}
+    {% if signed_in %}<a href="/logout">Sign out</a>{% endif %}
   </div></header>
   <main>
-    <h1>Start with openPractice</h1>
+    <h1>{% if signed_in %}openPractice{% else %}Sign in or sign up{% endif %}</h1>
     {% if signed_in %}
     <a href="/new-practice">Open New Practice</a>
     {% else %}
     <form id="request-signup" method="post" action="/api/method/open_practice.frappe_account_signup.request_signup">
-      <p>Use your work email to request a practice administrator invitation. This QA site uses synthetic data.</p>
-      <label>Work email <input name="email" type="email" autocomplete="email" maxlength="140" required></label>
-      <button type="submit" disabled>Start now</button>
+      <p>Enter your work email to get started.</p>
+      <label>Work email <input name="email" type="email" autocomplete="username" maxlength="140" required></label>
+      <button type="submit" disabled>Next</button>
     </form>
+    <section id="access-options" class="onboarding-panel" aria-labelledby="access-title" hidden>
+      <h2 id="access-title" tabindex="-1">Continue with openPractice</h2>
+      <p>Already have an account? <a id="continue-to-login" href="/login?redirect-to=%2Fnew-practice">Sign in with your password</a>.</p>
+      <p>New to openPractice? If your request is eligible, check your inbox for a verification link.</p>
+      <button id="change-email" type="button">Change email or try again</button>
+    </section>
     <form id="confirm-signup" hidden>
       <p>Confirm that you requested access with this work email.</p>
       <button type="submit">Verify work email</button>
     </form>
-    <noscript><p>Enable JavaScript to request or confirm a verification email.</p></noscript>
+    <noscript><p>Enable JavaScript to continue.</p></noscript>
     <p id="notice" role="status" aria-live="polite"></p>
     {% endif %}
   </main>

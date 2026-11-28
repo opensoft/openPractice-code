@@ -39,11 +39,31 @@ function handle(form, action) {
 }
 
 if (signup) {
+  const options = document.querySelector("#access-options");
+  const email = signup.elements.email;
+  let submittedEmail = "";
+
   handle(signup, async () => {
-    await send("request_signup", {email: signup.elements.email.value});
-    notice.textContent =
-      "If this address can receive an invitation, check your inbox for a verification link.";
-    signup.querySelector("button").textContent = "Send another verification email";
+    const value = email.value.trim().toLowerCase();
+    await send("request_signup", {email: value});
+    submittedEmail = value;
+    signup.hidden = true;
+    options.hidden = false;
+    document.querySelector("#access-title").focus();
+  });
+
+  document.querySelector("#change-email").addEventListener("click", () => {
+    options.hidden = true;
+    signup.hidden = false;
+    email.focus();
+  });
+
+  document.querySelector("#continue-to-login").addEventListener("click", () => {
+    try {
+      sessionStorage.setItem("openpractice-login-email", submittedEmail);
+    } catch {
+      // Native sign-in remains available when the browser blocks session storage.
+    }
   });
 
   let verification;
@@ -55,7 +75,9 @@ if (signup) {
     verification = {request_id: match[1], token: match[2]};
     notice.textContent = "";
     signup.hidden = true;
+    options.hidden = true;
     confirmation.hidden = false;
+    confirmation.querySelector("button").focus();
   }
 
   handle(confirmation, async () => {

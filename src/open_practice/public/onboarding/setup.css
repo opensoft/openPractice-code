@@ -20,7 +20,7 @@ header a { color: inherit; }
 main { max-width: 40rem; margin: 2rem auto; padding: 0 1.25rem 2rem; }
 h1 { margin: 0 0 1.25rem; }
 h2 { margin: 0 0 1rem; font-size: 1.15rem; }
-form {
+form, .onboarding-panel {
   background: white;
   border: 1px solid #c8d8d0;
   border-radius: .65rem;

@@ -80,13 +80,27 @@ def test_signup(playwright, origin):
     mailbox = playwright.request.new_context(base_url="http://127.0.0.1:8025")
     guest = browser.new_page()
     guest.goto(origin + "/")
-    expect(guest.get_by_role("button", name="Start now")).to_be_visible()
+    expect(guest.get_by_role("heading", name="Sign in or sign up")).to_be_visible()
+    expect(guest.get_by_role("link", name="Sign in with your password")).to_be_hidden()
+    expect(guest.get_by_role("button", name="Next")).to_be_visible()
     guest.get_by_label("Work email").fill(FRESH.upper())
-    guest.get_by_role("button", name="Start now").click()
-    expect(guest.get_by_role("status")).to_contain_text("check your inbox")
+    guest.get_by_role("button", name="Next").click()
+    expect(guest.get_by_text("check your inbox", exact=False)).to_be_visible()
 
     assert post(guest, origin, "request_signup", {"email": FRESH}).json()["message"] == {"accepted": True}
     assert post(guest, origin, "request_signup", {"email": EXISTING}).json()["message"] == {"accepted": True}
+
+    existing = browser.new_page()
+    existing.goto(origin + "/start")
+    existing.get_by_label("Work email").fill(EXISTING)
+    existing.get_by_role("button", name="Next").click()
+    expect(existing.get_by_role("heading", name="Continue with openPractice")).to_be_visible()
+    assert existing.locator("#access-options").inner_text() == guest.locator("#access-options").inner_text()
+    existing.get_by_role("button", name="Change email or try again").click()
+    expect(existing.get_by_label("Work email")).to_be_focused()
+    expect(existing.get_by_label("Work email")).to_have_value(EXISTING)
+    existing.close()
+
     flush()
     [original] = messages(mailbox)
     assert original["To"][0]["Address"] == FRESH
@@ -98,8 +112,8 @@ def test_signup(playwright, origin):
     guest.get_by_role("button", name="Verify work email").click()
     expect(guest.get_by_role("status")).to_contain_text("no longer valid")
     guest.get_by_label("Work email").fill(FRESH)
-    guest.get_by_role("button", name="Start now").click()
-    expect(guest.get_by_role("status")).to_contain_text("check your inbox")
+    guest.get_by_role("button", name="Next").click()
+    expect(guest.get_by_text("check your inbox", exact=False)).to_be_visible()
     flush()
     reissued, _ = messages(mailbox)
     fresh_link = mail_link(mailbox, reissued, VERIFY_LINK)
@@ -158,12 +172,23 @@ def test_signup(playwright, origin):
                                params={"route": "/appointments"}).status == 403
     assert post(guest, origin, "request_signup", {"email": FRESH}).json()["message"] == {"accepted": True}
 
+    returning = browser.new_page()
+    returning.goto(origin + "/start")
+    returning.get_by_label("Work email").fill(FRESH)
+    returning.get_by_role("button", name="Next").click()
+    returning.get_by_role("link", name="Sign in with your password").click()
+    expect(returning.locator("#login_email")).to_have_value(FRESH)
+    returning.locator("#login_password").fill(os.environ["PRACTICELAB_SMOKE_PASSWORD"])
+    returning.locator(".btn-login").click()
+    expect(returning).to_have_url(re.compile("/new-practice$"), timeout=15_000)
+    expect(returning.get_by_label("Office name")).to_have_value("Synthetic Signup Office")
+
     toggle_signup("0")
     assert guest.request.get(origin + "/start").status == 404
     assert post(guest, origin, "request_signup", {"email": "disabled@example.invalid"}).status == 404
     flush()
     assert len(messages(mailbox)) == 3
-    print("PASS: QA signup, SMTP verification and invitation, native sign-in to New Practice, and privilege boundaries.")
+    print("PASS: Shared email entry for signup and returning sign-in, and native invitation to New Practice.")
 
 
 if __name__ == "__main__":
